@@ -1017,42 +1017,9 @@ function MondayTab() {
         </div>
       ) : (
         // ─── CLIENTS VIEW MODE ───
-        <div style={{ display:'flex', gap:24, alignItems:'flex-start' }}>
-          {/* Left Sidebar: Client board list */}
-          <div style={{
-            width: 220,
-            flexShrink: 0,
-            position: 'sticky',
-            top: 20,
-            maxHeight: 'calc(100vh - 260px)',
-            overflowY: 'auto',
-            paddingRight: 8,
-            borderRight: '1px solid rgba(20,36,92,0.08)'
-          }}>
-            <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:10 }}>
-              Clientes ({boards.length})
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
-              {boards.map(board => {
-                const active = board.id === selectedBoard
-                return (
-                  <button key={board.id} onClick={() => { setSelectedBoard(board.id); setSearch(''); setStatusFilter('all') }}
-                    style={{ textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', fontFamily:'var(--sans)', fontSize:12.5, fontWeight: active ? 700 : 400,
-                      background: active ? 'var(--ink-800)' : 'transparent', color: active ? '#fdfcf8' : 'var(--char)', transition:'all 0.12s',
-                      display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{board.name}</span>
-                    <span style={{ fontSize:10, fontWeight:600, marginLeft:8, opacity:0.65, flexShrink:0,
-                      background: active ? 'rgba(255,255,255,0.2)' : 'rgba(20,36,92,0.1)', borderRadius:999, padding:'1px 7px' }}>
-                      {board.items_count}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Right Area: selected client tasks */}
-          <div style={{ flex:1, minWidth:0 }}>
+        <div>
+          {/* Área principal a todo el ancho (sin sidebar) */}
+          <div style={{ minWidth:0 }}>
             {currentBoard ? (
               <>
                 {/* Avance por Responsable */}
@@ -1109,6 +1076,10 @@ function MondayTab() {
                 )}
 
                 <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+                  <select value={selectedBoard ?? ''} onChange={e => { setSelectedBoard(e.target.value); setSearch(''); setStatusFilter('all') }}
+                    style={{ padding:'7px 12px', borderRadius:8, border:'1px solid var(--ink-800)', fontSize:13, fontWeight:700, background:'#fff', color:'var(--ink-900)', fontFamily:'var(--sans)', cursor:'pointer', outline:'none', maxWidth:260 }}>
+                    {boards.map(b => <option key={b.id} value={b.id}>{b.name} ({b.items_count})</option>)}
+                  </select>
                   <div style={{ position:'relative', flex:1, minWidth:180 }}>
                     <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#9aa0a6', pointerEvents:'none' }}>🔍</span>
                     <input type="text" placeholder="Buscar tarea..." value={search} onChange={e => setSearch(e.target.value)}
@@ -1238,7 +1209,7 @@ function MondayTab() {
                 ))}
               </>
             ) : (
-              <p style={{ color:'#9aa0a6', fontStyle:'italic' }}>Selecciona un cliente del panel izquierdo.</p>
+              <p style={{ color:'#9aa0a6', fontStyle:'italic' }}>No hay clientes disponibles.</p>
             )}
           </div>
         </div>
