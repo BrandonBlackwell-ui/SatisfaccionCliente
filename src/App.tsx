@@ -722,73 +722,9 @@ function MondayTab() {
 
       {groupMode === 'responsables' ? (
         // ─── RESPONSIBLES VIEW MODE ───
-        <div style={{ display:'flex', gap:24, alignItems:'flex-start' }}>
-          {/* Left Sidebar: Responsibles list */}
-          <div style={{
-            width: 230,
-            flexShrink: 0,
-            position: 'sticky',
-            top: 20,
-            maxHeight: 'calc(100vh - 260px)',
-            overflowY: 'auto',
-            paddingRight: 8,
-            borderRight: '1px solid rgba(20,36,92,0.08)'
-          }}>
-            <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:12 }}>
-              Responsables Activos
-            </div>
-            
-            <button
-              onClick={() => { setSelectedResponsible(null); setSearch(''); setStatusFilter('all') }}
-              style={{
-                width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--sans)', fontSize: 13, fontWeight: selectedResponsible === null ? 700 : 400,
-                background: selectedResponsible === null ? 'var(--ink-800)' : 'rgba(20,36,92,0.04)',
-                color: selectedResponsible === null ? '#fdfcf8' : 'var(--ink-900)',
-                marginBottom: 10, transition: 'all 0.12s', display: 'flex', alignItems: 'center', gap: 6
-              }}
-            >
-              📊 Ver Resumen de Barras
-            </button>
-
-            <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
-              {responsiblesData.map(resp => {
-                const active = resp.name === selectedResponsible
-                const audit = resp.audit
-                return (
-                  <button
-                    key={resp.name}
-                    onClick={() => { setSelectedResponsible(resp.name); setSearch(''); setStatusFilter('all') }}
-                    style={{
-                      textAlign:'left', padding:'9px 11px', borderRadius:8, border:'none', cursor:'pointer',
-                      fontFamily:'var(--sans)', fontSize:12.5, fontWeight: active ? 700 : 500,
-                      background: active ? 'var(--ink-800)' : 'transparent',
-                      color: active ? '#fdfcf8' : 'var(--char)', transition:'all 0.12s',
-                      display:'flex', flexDirection:'column', gap:3
-                    }}
-                  >
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%' }}>
-                      <span style={{ fontWeight: 700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        {resp.name}
-                      </span>
-                      <span style={{ fontSize:10, opacity:0.65, flexShrink:0, background: active ? 'rgba(255,255,255,0.2)' : 'rgba(20,36,92,0.08)', borderRadius:999, padding:'1px 6px', fontWeight:700 }}>
-                        {resp.total} t
-                      </span>
-                    </div>
-                    {audit && (
-                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:9.5, opacity: active ? 0.85 : 0.65, fontWeight: 600 }}>
-                        <span>{audit.rol}</span>
-                        <span style={{ color: active ? '#fff' : 'var(--teal)' }}>{audit.eventos_acum_consultoria} eventos</span>
-                      </div>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Right Area */}
-          <div style={{ flex:1, minWidth:0 }}>
+        <div>
+          {/* Área principal a todo el ancho (sin sidebar) */}
+          <div style={{ minWidth:0 }}>
             {selectedResponsible === null ? (
               // ── COMPILATION DASHBOARD (No responsible selected) ──
               <div>
@@ -800,14 +736,14 @@ function MondayTab() {
                   marginBottom: 20,
                   boxShadow: '0 1px 4px rgba(20,36,92,0.03)'
                 }}>
-                  <h3 style={{ fontFamily: 'var(--caveat)', fontSize: 32, margin: '0 0 4px', color: 'var(--ink-900)' }}>
+                  <h3 style={{ fontFamily: 'var(--caveat)', fontSize: 26, margin: '0 0 2px', color: 'var(--ink-900)' }}>
                     Actividad de los Responsables
                   </h3>
-                  <p style={{ fontSize: 13, color: 'var(--char)', margin: '0 0 20px' }}>
-                    Ordenados de mayor a menor actividad según el <strong>Historial de Auditorías de Monday</strong>. Haz clic en cualquier responsable para ver el desglose de sus tareas.
+                  <p style={{ fontSize: 12, color: 'var(--char)', margin: '0 0 14px' }}>
+                    Ordenados por actividad según el <strong>Historial de Auditorías</strong>. Haz clic en un responsable para ver sus tareas.
                   </p>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {responsiblesData.map(resp => {
                       const audit = resp.audit
                       const pctCompleted = (resp.completed / resp.total) * 100
@@ -821,88 +757,52 @@ function MondayTab() {
                           onClick={() => setSelectedResponsible(resp.name)}
                           style={{
                             display: 'flex',
-                            flexDirection: 'column',
-                            gap: 6,
-                            padding: '12px 16px',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '7px 12px',
                             background: '#fff',
-                            borderRadius: 10,
+                            borderRadius: 8,
                             border: '1px solid rgba(20,36,92,0.06)',
                             cursor: 'pointer',
-                            transition: 'all 0.15s',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+                            transition: 'all 0.12s'
                           }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.borderColor = 'rgba(20,36,92,0.18)'
-                            e.currentTarget.style.transform = 'translateY(-1px)'
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.borderColor = 'rgba(20,36,92,0.06)'
-                            e.currentTarget.style.transform = 'translateY(0)'
-                          }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(20,36,92,0.2)' }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(20,36,92,0.06)' }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 10 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <strong style={{ fontSize: 15, color: 'var(--ink-900)' }}>{resp.name}</strong>
-                              {audit && (
-                                <span style={{ fontSize: 10.5, color: '#78808c', fontWeight: 600 }}>
-                                  ({audit.rol})
-                                </span>
-                              )}
-                              {audit?.estado && (
-                                <span style={{
-                                  fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
-                                  background: statusStyles?.bg, color: statusStyles?.color, border: `1px solid ${statusStyles?.border}`
-                                }}>
-                                  {audit.estado.toUpperCase()}
-                                </span>
-                              )}
-                            </div>
-                            
-                            <div style={{ fontSize: 12.5, color: 'var(--char)', display: 'flex', gap: 12 }}>
-                              {audit && (
-                                <span>
-                                  📈 <strong>{audit.eventos_acum_consultoria}</strong> eventos acumulados
-                                </span>
-                              )}
-                              <span>
-                                📋 <strong>{resp.total}</strong> tareas en total
+                          {/* Nombre + rol + estado */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flex: '2 1 0', minWidth: 0 }}>
+                            <strong style={{ fontSize: 13, color: 'var(--ink-900)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resp.name}</strong>
+                            {audit && <span style={{ fontSize: 10, color: '#9aa0a6', fontWeight: 600, flexShrink: 0 }}>{audit.rol}</span>}
+                            {audit?.estado && (
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 999, flexShrink: 0,
+                                background: statusStyles?.bg, color: statusStyles?.color, border: `1px solid ${statusStyles?.border}`
+                              }}>
+                                {audit.estado.toUpperCase()}
                               </span>
-                            </div>
+                            )}
                           </div>
 
-                          {/* Segmented Progress Bar */}
+                          {/* Barra de progreso */}
                           <div style={{
-                            display: 'flex',
-                            height: 10,
-                            borderRadius: 999,
-                            background: 'rgba(20,36,92,0.05)',
-                            overflow: 'hidden',
-                            position: 'relative',
-                            marginTop: 4
+                            flex: '1.4 1 0', minWidth: 70, display: 'flex', height: 8,
+                            borderRadius: 999, background: 'rgba(20,36,92,0.05)', overflow: 'hidden'
                           }}>
-                            {resp.completed > 0 && (
-                              <div style={{ width: `${pctCompleted}%`, background: 'var(--teal)', height: '100%' }} />
-                            )}
-                            {resp.inProgress > 0 && (
-                              <div style={{ width: `${pctInProgress}%`, background: 'var(--amber)', height: '100%' }} />
-                            )}
-                            {resp.overdue > 0 && (
-                              <div style={{ width: `${pctOverdue}%`, background: 'var(--crimson)', height: '100%' }} />
-                            )}
+                            {resp.completed > 0 && <div style={{ width: `${pctCompleted}%`, background: 'var(--teal)', height: '100%' }} />}
+                            {resp.inProgress > 0 && <div style={{ width: `${pctInProgress}%`, background: 'var(--amber)', height: '100%' }} />}
+                            {resp.overdue > 0 && <div style={{ width: `${pctOverdue}%`, background: 'var(--crimson)', height: '100%' }} />}
                           </div>
 
-                          {/* Mini Summary Count and Last audit activity note */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, fontWeight: 600, color: '#78808c', marginTop: 2 }}>
-                            <div style={{ display: 'flex', gap: 10 }}>
-                              {resp.completed > 0 && <span style={{ color: 'var(--teal)' }}>✓ {resp.completed} completadas</span>}
-                              {resp.inProgress > 0 && <span style={{ color: 'var(--amber)' }}>⏳ {resp.inProgress} en proceso</span>}
-                              {resp.overdue > 0 && <span style={{ color: 'var(--crimson)' }}>⚠️ {resp.overdue} vencidas</span>}
-                            </div>
-                            {audit?.nota && (
-                              <span style={{ fontStyle: 'italic', fontWeight: 500, color: 'var(--char)' }}>
-                                "{audit.nota}"
-                              </span>
-                            )}
+                          {/* Conteos */}
+                          <div style={{ display: 'flex', gap: 9, fontSize: 11, fontWeight: 700, flexShrink: 0, width: 120, justifyContent: 'flex-end' }}>
+                            <span style={{ color: 'var(--teal)' }} title="Completadas">✓{resp.completed}</span>
+                            <span style={{ color: 'var(--amber)' }} title="En proceso">⏳{resp.inProgress}</span>
+                            <span style={{ color: 'var(--crimson)' }} title="Vencidas">⚠️{resp.overdue}</span>
+                          </div>
+
+                          {/* Eventos + total */}
+                          <div style={{ fontSize: 10.5, color: '#78808c', fontWeight: 600, flexShrink: 0, width: 130, textAlign: 'right' }}>
+                            {audit && <>📈 {audit.eventos_acum_consultoria} · </>}📋 {resp.total} t
                           </div>
                         </div>
                       )
