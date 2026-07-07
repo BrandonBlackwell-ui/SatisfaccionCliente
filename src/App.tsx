@@ -426,20 +426,26 @@ function SurveyTab({ analyses, groups, checklists }: {
 }
 
 // ─── Monday Tab ───────────────────────────────────────────────────────────────
+// Cache a nivel de módulo: conserva lo ya cargado al cambiar de pestaña y volver,
+// evitando llamar de nuevo a la API de Monday en cada montaje.
+let mondayCache: { boards: MondayBoardWithItems[]; auditRecords: AuditRecord[] } | null = null
+
 function MondayTab() {
-  const [boards, setBoards] = useState<MondayBoardWithItems[]>([])
-  const [auditRecords, setAuditRecords] = useState<AuditRecord[]>([])
-  const [loading, setLoading] = useState(true)
+  const [boards, setBoards] = useState<MondayBoardWithItems[]>(() => mondayCache?.boards ?? [])
+  const [auditRecords, setAuditRecords] = useState<AuditRecord[]>(() => mondayCache?.auditRecords ?? [])
+  const [loading, setLoading] = useState(!mondayCache)
   const [error, setError] = useState<string | null>(null)
   
   // Navigation / Filter States
   const [groupMode, setGroupMode] = useState<'responsables' | 'clientes'>('responsables')
-  const [selectedBoard, setSelectedBoard] = useState<string | null>(null)
+  const [selectedBoard, setSelectedBoard] = useState<string | null>(() => mondayCache?.boards?.[0]?.id ?? null)
   const [selectedResponsible, setSelectedResponsible] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
+    // Si ya tenemos datos cacheados de una carga previa, no volvemos a llamar la API.
+    if (mondayCache) return
     async function load() {
       setLoading(true); setError(null)
       try {
@@ -473,14 +479,16 @@ function MondayTab() {
           }))
           .sort((a, b) => a.name.localeCompare(b.name))
           
+        const parsedAudit = csvText ? parseCSV(csvText) : []
+
         setBoards(boardsList)
         if (boardsList.length > 0) {
           setSelectedBoard(boardsList[0].id)
         }
-        
-        if (csvText) {
-          setAuditRecords(parseCSV(csvText))
-        }
+        setAuditRecords(parsedAudit)
+
+        // Guardamos en cache para conservarlo al cambiar de pestaña.
+        mondayCache = { boards: boardsList, auditRecords: parsedAudit }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar Monday')
       } finally {
