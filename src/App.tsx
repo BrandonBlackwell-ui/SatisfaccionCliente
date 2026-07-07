@@ -173,50 +173,55 @@ function isOverdue(dateStr: string | null) {
 }
 
 // ─── Components ──────────────────────────────────────────────────────────────
-function SurveyCell({ answered, hasSurveyData, question, answer }: {
-  answered: boolean; hasSurveyData: boolean; question?: string; answer?: string
+function SurveyCell({ answered, hasSurveyData, question, answer, label }: {
+  answered: boolean; hasSurveyData: boolean; question?: string; answer?: string; label: string
 }) {
   const [show, setShow] = useState(false)
-  if (!hasSurveyData) {
-    return (
-      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-        <span style={{ fontSize:22, color:'#d0ccc4', lineHeight:1 }}>✗</span>
-        <span style={{ fontSize:10, color:'#c0bbb0' }}>Sin datos</span>
-      </div>
-    )
-  }
+  
+  const bg = !hasSurveyData ? 'rgba(120,128,140,0.06)' : answered ? 'rgba(31,143,124,0.1)' : 'rgba(180,58,58,0.1)'
+  const color = !hasSurveyData ? '#78808c' : answered ? 'var(--teal)' : 'var(--crimson)'
+  const border = !hasSurveyData ? 'rgba(120,128,140,0.12)' : answered ? 'rgba(31,143,124,0.18)' : 'rgba(180,58,58,0.18)'
+  const icon = !hasSurveyData ? '?' : answered ? '✓' : '✗'
+
   return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, position:'relative', cursor:'pointer' }}
+    <div style={{ position:'relative', cursor:'pointer' }}
       onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      {answered
-        ? <span style={{ fontSize:26, color:'#2a7a50', lineHeight:1, fontWeight:700 }}>✓</span>
-        : <span style={{ fontSize:26, color:'#a8453b', lineHeight:1, fontWeight:700 }}>✗</span>}
-      <span style={{ fontSize:10, fontWeight:600, color: answered ? '#3f7050' : '#c06050', letterSpacing:'.03em' }}>
-        {answered ? 'Respondida' : 'Pendiente'}
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 3,
+        padding: '2px 5px',
+        borderRadius: 4,
+        fontSize: 10.5,
+        fontWeight: 700,
+        background: bg,
+        color: color,
+        border: `1px solid ${border}`,
+        transition: 'all 0.12s',
+        minWidth: 36
+      }}>
+        <span>{label}</span>
+        <span style={{ fontSize: 11 }}>{icon}</span>
       </span>
+      
       {show && (question || answer) && (
-        <div style={{ position:'absolute', bottom:'110%', left:'50%', transform:'translateX(-50%)', background:'#1c2027', color:'#fdfcf8', borderRadius:10, padding:'12px 16px', fontSize:12.5, lineHeight:1.55, width:280, zIndex:200, marginBottom:8, boxShadow:'0 6px 24px rgba(0,0,0,0.3)', whiteSpace:'normal', textAlign:'left', pointerEvents:'none' }}>
-          {question && <div style={{ fontWeight:700, marginBottom:8, color:'#e8e4d8' }}>{question}</div>}
-          {answer ? <div style={{ color:'#a0c4e8', fontStyle:'italic' }}>"{answer}"</div>
-            : answered ? <div style={{ color:'#78808c', fontStyle:'italic' }}>Respuesta registrada</div> : null}
+        <div style={{
+          position:'absolute', bottom:'120%', right: 0, background:'#1c2027', color:'#fdfcf8', borderRadius:10,
+          padding:'12px 16px', fontSize:12, lineHeight:1.55, width:260, zIndex:200, marginBottom:8,
+          boxShadow:'0 6px 24px rgba(0,0,0,0.3)', whiteSpace:'normal', textAlign:'left', pointerEvents:'none'
+        }}>
+          {question && <div style={{ fontWeight:700, marginBottom:6, color:'#e8e4d8', fontSize: 11.5 }}>{question}</div>}
+          {answer ? <div style={{ color:'#a0c4e8', fontStyle:'italic', fontSize: 11 }}>"{answer}"</div>
+            : answered ? <div style={{ color:'#78808c', fontStyle:'italic', fontSize: 11 }}>Respuesta registrada</div>
+            : <div style={{ color:'#e87c7c', fontStyle:'italic', fontSize: 11 }}>Pendiente de respuesta</div>}
         </div>
       )}
     </div>
   )
 }
 
-function ScoreBadge({ score }: { score: number | null }) {
-  if (score == null) return <span style={{ color:'#c0bbb0', fontSize:13 }}>--</span>
-  const good = score >= 80, mid = score >= 60
-  return (
-    <span style={{ display:'inline-block', padding:'3px 11px', borderRadius:999, fontSize:13, fontWeight:700,
-      background: good ? 'rgba(42,122,80,0.12)' : mid ? 'rgba(184,132,28,0.12)' : 'rgba(168,69,59,0.12)',
-      color: good ? '#2a7a50' : mid ? '#8a6010' : '#a8453b',
-      border: `1px solid ${good ? 'rgba(42,122,80,0.25)' : mid ? 'rgba(184,132,28,0.25)' : 'rgba(168,69,59,0.25)'}` }}>
-      {score}/100
-    </span>
-  )
-}
+
 
 // ─── Survey Tab ───────────────────────────────────────────────────────────────
 function SurveyTab({ analyses, groups, checklists }: {
@@ -308,10 +313,6 @@ function SurveyTab({ analyses, groups, checklists }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts, checklists, latestSurveyByAccount, latestSurveyByJid])
 
-  const withContract = rows.filter(r => r.hasContract).length
-  const withSurvey = rows.filter(r => r.hasContract && (r.questionA?.answered || r.questionB?.answered)).length
-  const bothAnswered = rows.filter(r => r.hasContract && r.questionA?.answered && r.questionB?.answered).length
-
   const filteredRows = useMemo(() => {
     let res = rows
     if (filterMode === 'done')    res = res.filter(r => r.questionA?.answered || r.questionB?.answered)
@@ -320,112 +321,83 @@ function SurveyTab({ analyses, groups, checklists }: {
     return res
   }, [rows, filterMode, search])
 
-  const dtSurvey = (iso: string | null) => {
-    if (!iso) return null
-    const d = new Date(iso)
-    return {
-      date: new Intl.DateTimeFormat('es-MX', { day:'2-digit', month:'short', year:'numeric' }).format(d),
-      time: new Intl.DateTimeFormat('es-MX', { hour:'2-digit', minute:'2-digit' }).format(d),
-    }
-  }
-
   return (
     <div>
-      {/* Stats */}
-      <div style={{ display:'flex', gap:14, marginBottom:28, flexWrap:'wrap' }}>
-        {[
-          { label:'Con survey respondido', value:withSurvey, sub:`de ${withContract} cuentas activas`, bg:'#d4eedd', border:'#a5d4b8', color:'#2a7a50', subColor:'#4c9466' },
-          { label:'Ambas preguntas', value:bothAnswered, sub:'contestaron Tipo A y Tipo B', bg:'#fdf1ad', border:'#e4d870', color:'#8a6010', subColor:'#9a7020' },
-          { label:'Pendientes', value:withContract-withSurvey, sub:'sin survey aplicado', bg:'#fde8e6', border:'#f0c0bc', color:'#a8453b', subColor:'#c0504a' },
-        ].map(s => (
-          <div key={s.label} style={{ background:s.bg, border:`1px solid ${s.border}`, borderRadius:14, padding:'18px 24px', flex:1, minWidth:160, boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}>
-            <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:s.color, marginBottom:6 }}>{s.label}</div>
-            <div style={{ fontSize:36, fontWeight:800, color:s.color, lineHeight:1 }}>{s.value}</div>
-            <div style={{ fontSize:12, color:s.subColor, marginTop:6 }}>{s.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Toolbar */}
-      <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
-        <div style={{ position:'relative', flex:1, minWidth:220 }}>
-          <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', fontSize:14, color:'#9aa0a6', pointerEvents:'none' }}>🔍</span>
+      {/* Compact Toolbar */}
+      <div style={{ display:'flex', gap:8, marginBottom:16, alignItems:'center', flexWrap: 'wrap' }}>
+        <div style={{ position:'relative', flex: 1, maxWidth: 240 }}>
+          <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#9aa0a6', pointerEvents:'none' }}>🔍</span>
           <input id="survey-search" type="text" placeholder="Buscar cliente..." value={search} onChange={e => setSearch(e.target.value)}
-            style={{ width:'100%', padding:'8px 12px 8px 36px', border:'1px solid rgba(20,36,92,0.15)', borderRadius:8, fontSize:13, background:'#fff', color:'var(--ink-900)', outline:'none', fontFamily:'var(--sans)' }} />
+            style={{ width:'100%', padding:'6px 10px 6px 30px', border:'1px solid rgba(20,36,92,0.15)', borderRadius:8, fontSize:12.5, background:'#fff', color:'var(--ink-900)', outline:'none', fontFamily:'var(--sans)' }} />
         </div>
         {(['all','done','pending'] as const).map(mode => {
           const labels = { all:'Todos', done:'✓ Respondidos', pending:'✗ Pendientes' }
           const active = filterMode === mode
           return (
-            <button key={mode} onClick={() => setFilterMode(mode)} style={{ padding:'8px 16px', borderRadius:8, fontSize:13, fontWeight:600, border:`1px solid ${active ? 'var(--ink-800)' : 'rgba(20,36,92,0.15)'}`, background:active ? 'var(--ink-800)' : '#fff', color:active ? '#fdfcf8' : 'var(--char)', cursor:'pointer', transition:'all 0.15s', fontFamily:'var(--sans)' }}>
+            <button key={mode} onClick={() => setFilterMode(mode)} style={{ padding:'5px 12px', borderRadius:8, fontSize:12, fontWeight:600, border:`1px solid ${active ? 'var(--ink-800)' : 'rgba(20,36,92,0.15)'}`, background:active ? 'var(--ink-800)' : '#fff', color:active ? '#fdfcf8' : 'var(--char)', cursor:'pointer', transition:'all 0.15s', fontFamily:'var(--sans)' }}>
               {labels[mode]}
             </button>
           )
         })}
-        <span style={{ fontSize:12, color:'#9aa0a6', marginLeft:4 }}>{filteredRows.length} cliente{filteredRows.length !== 1 ? 's' : ''}</span>
+        <span style={{ fontSize:12, color:'#9aa0a6', marginLeft:'auto' }}>{filteredRows.length} cliente{filteredRows.length !== 1 ? 's' : ''}</span>
       </div>
 
-      {/* Table */}
-      <div style={{ overflowX:'auto', borderRadius:12, boxShadow:'0 2px 12px rgba(20,36,92,0.08)', border:'1px solid rgba(20,36,92,0.08)' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse', fontFamily:'var(--sans)', fontSize:13, background:'#fff' }}>
-          <thead>
-            <tr style={{ background:'#f5f2ea' }}>
-              {[
-                { label:'Cliente', align:'left', width:'auto', sub:'' },
-                { label:'Pregunta Tipo A', align:'center', width:150, sub:'Satisfacción General' },
-                { label:'Pregunta Tipo B', align:'center', width:150, sub:'Objetivo Específico' },
-                { label:'Último Survey', align:'center', width:160, sub:'' },
-                { label:'Score A', align:'center', width:90, sub:'' },
-                { label:'Score B', align:'center', width:90, sub:'' },
-              ].map((col, i) => (
-                <th key={i} style={{ padding:'13px 16px', textAlign:col.align as any, fontWeight:700, fontSize:10.5, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:col.width }}>
-                  {col.label}{col.sub && <><br/><span style={{ fontWeight:400, textTransform:'none', fontSize:9.5, color:'#a8acb5', letterSpacing:0 }}>{col.sub}</span></>}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding:'40px 16px', textAlign:'center', color:'#9aa0a6', fontSize:14, fontStyle:'italic' }}>No se encontraron clientes.</td></tr>
-            ) : filteredRows.map((row, idx) => {
-              const isEven = idx % 2 === 0
-              const hasSurvey = row.questionA?.answered || row.questionB?.answered
-              const dotColor = hasSurvey ? '#2a7a50' : row.hasContract ? '#a8453b' : '#ccc'
-              const dt = dtSurvey(row.lastSurveyDate)
-              return (
-                <tr key={row.accountId} style={{ background: isEven ? '#fff' : '#faf8f3', borderBottom:'1px solid rgba(20,36,92,0.06)', opacity: row.hasContract ? 1 : 0.4, transition:'background 0.1s' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#f0ede5')}
-                  onMouseLeave={e => (e.currentTarget.style.background = isEven ? '#fff' : '#faf8f3')}>
-                  <td style={{ padding:'15px 16px', verticalAlign:'middle' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <div style={{ width:9, height:9, borderRadius:'50%', flexShrink:0, background:dotColor, boxShadow:`0 0 0 2px ${dotColor}22` }} />
-                      <div>
-                        <div style={{ fontWeight:700, fontSize:14, color:'#1c2027', lineHeight:1.2 }}>{row.accountName}</div>
-                        {!row.hasContract && <div style={{ fontSize:10.5, color:'#9aa0a6', marginTop:1 }}>Sin contrato activo</div>}
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding:'15px 16px', textAlign:'center', verticalAlign:'middle' }}>
-                    <SurveyCell answered={row.questionA?.answered ?? false} hasSurveyData={row.questionA !== null} question={row.questionA?.question} answer={row.questionA?.answer} />
-                  </td>
-                  <td style={{ padding:'15px 16px', textAlign:'center', verticalAlign:'middle' }}>
-                    <SurveyCell answered={row.questionB?.answered ?? false} hasSurveyData={row.questionB !== null} question={row.questionB?.question} answer={row.questionB?.answer} />
-                  </td>
-                  <td style={{ padding:'15px 16px', textAlign:'center', verticalAlign:'middle' }}>
-                    {dt ? <div><div style={{ fontSize:13, fontWeight:600, color:'#3d434c' }}>{dt.date}</div><div style={{ fontSize:10.5, color:'#9aa0a6', marginTop:2, fontFamily:'var(--mono)' }}>{dt.time}</div></div>
-                      : <span style={{ fontSize:12, color:'#c8c4bc', fontStyle:'italic' }}>Sin survey</span>}
-                  </td>
-                  <td style={{ padding:'15px 16px', textAlign:'center', verticalAlign:'middle' }}><ScoreBadge score={row.questionA?.score ?? null} /></td>
-                  <td style={{ padding:'15px 16px', textAlign:'center', verticalAlign:'middle' }}><ScoreBadge score={row.questionB?.score ?? null} /></td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+      {/* 4-column compact grid of clients */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+        gap: '6px'
+      }}>
+        {filteredRows.length === 0 ? (
+          <div style={{ gridColumn: '1 / -1', padding: '40px 16px', textAlign: 'center', color: '#9aa0a6', fontSize: 13, fontStyle: 'italic' }}>
+            No se encontraron clientes.
+          </div>
+        ) : filteredRows.map(row => {
+          return (
+            <div key={row.accountId} style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 10px',
+              background: '#fff',
+              borderRadius: 8,
+              border: '1px solid rgba(20,36,92,0.06)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.01)',
+              minWidth: 0
+            }}>
+              <span style={{
+                fontWeight: 600,
+                fontSize: 12.5,
+                color: '#1c2027',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                marginRight: 6,
+                flex: 1
+              }} title={row.accountName}>
+                {row.accountName}
+              </span>
+              
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <SurveyCell 
+                  answered={row.questionA?.answered ?? false} 
+                  hasSurveyData={row.questionA !== null} 
+                  question={row.questionA?.question} 
+                  answer={row.questionA?.answer} 
+                  label="A"
+                />
+                <SurveyCell 
+                  answered={row.questionB?.answered ?? false} 
+                  hasSurveyData={row.questionB !== null} 
+                  question={row.questionB?.question} 
+                  answer={row.questionB?.answer} 
+                  label="B"
+                />
+              </div>
+            </div>
+          )
+        })}
       </div>
-      <p style={{ marginTop:18, fontSize:11.5, color:'#a8acb5', fontStyle:'italic', lineHeight:1.5 }}>
-        Pasa el cursor sobre ✓ o ✗ para ver la pregunta y respuesta. Las cuentas sin contrato aparecen atenuadas.
-      </p>
     </div>
   )
 }
@@ -1420,28 +1392,10 @@ export default function App() {
           <div className="lb-lines" />
           <div className="lb-margin" />
           <div className="lb-spine"><Rings /></div>
-          <div className="lb-content">
-
-            {/* Header */}
-            <div className="lb-header-row">
-              <div>
-                <span className="lb-eyebrow">Satisfacción del Cliente</span>
-                <h1 className="lb-h1">{activeTab === 'survey' ? 'Survey Dashboard' : 'Tareas Monday'}</h1>
-                <p className="lb-subtext">
-                  {activeTab === 'survey'
-                    ? 'Seguimiento de preguntas bimestrales de satisfacción por cliente.'
-                    : 'Tableros de tareas por cliente — Consultoria Cuentas.'}
-                </p>
-              </div>
-              <div style={{ textAlign:'right' }}>
-                <div style={{ fontFamily:'var(--caveat)', fontSize:28, fontWeight:700, color:'#3a3a44', lineHeight:1.1, marginBottom:12 }}>
-                  {new Date().toLocaleDateString('es-MX', { day:'numeric', month:'long', year:'numeric', timeZone:'America/Mexico_City' })}
-                </div>
-              </div>
-            </div>
+          <div className="lb-content" style={{ padding: '24px 32px 32px 96px' }}>
 
             {/* Tabs */}
-            <div style={{ display:'flex', gap:4, marginBottom:28, borderBottom:'2px solid rgba(20,36,92,0.1)', paddingBottom:0 }}>
+            <div style={{ display:'flex', gap:4, marginBottom:20, borderBottom:'2px solid rgba(20,36,92,0.1)', paddingBottom:0 }}>
               {([
                 { id:'survey', label:'📋 Survey de Satisfacción' },
                 { id:'monday', label:'📌 Tareas Monday' },
