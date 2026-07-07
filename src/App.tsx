@@ -173,15 +173,19 @@ function isOverdue(dateStr: string | null) {
 }
 
 // ─── Components ──────────────────────────────────────────────────────────────
-function SurveyCell({ answered, hasSurveyData, question, answer, label }: {
-  answered: boolean; hasSurveyData: boolean; question?: string; answer?: string; label: string
+function SurveyCell({ qA, qB }: {
+  qA: SurveyRow['questionA']; qB: SurveyRow['questionB']
 }) {
   const [show, setShow] = useState(false)
-  
-  const bg = !hasSurveyData ? 'rgba(120,128,140,0.06)' : answered ? 'rgba(31,143,124,0.1)' : 'rgba(180,58,58,0.1)'
-  const color = !hasSurveyData ? '#78808c' : answered ? 'var(--teal)' : 'var(--crimson)'
-  const border = !hasSurveyData ? 'rgba(120,128,140,0.12)' : answered ? 'rgba(31,143,124,0.18)' : 'rgba(180,58,58,0.18)'
-  const icon = !hasSurveyData ? '?' : answered ? '✓' : '✗'
+
+  // Un solo indicador por cliente: ✓ si respondió la encuesta, ✗ si está pendiente.
+  const answered = !!(qA?.answered || qB?.answered)
+  const bg = answered ? 'rgba(31,143,124,0.1)' : 'rgba(180,58,58,0.1)'
+  const color = answered ? 'var(--teal)' : 'var(--crimson)'
+  const border = answered ? 'rgba(31,143,124,0.18)' : 'rgba(180,58,58,0.18)'
+  const icon = answered ? '✓' : '✗'
+
+  const items = [qA, qB].filter(Boolean) as NonNullable<SurveyRow['questionA']>[]
 
   return (
     <div style={{ position:'relative', cursor:'pointer' }}
@@ -190,31 +194,33 @@ function SurveyCell({ answered, hasSurveyData, question, answer, label }: {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 3,
-        padding: '2px 5px',
+        padding: '2px 6px',
         borderRadius: 4,
-        fontSize: 10.5,
+        fontSize: 13,
         fontWeight: 700,
         background: bg,
         color: color,
         border: `1px solid ${border}`,
         transition: 'all 0.12s',
-        minWidth: 36
+        minWidth: 26
       }}>
-        <span>{label}</span>
-        <span style={{ fontSize: 11 }}>{icon}</span>
+        {icon}
       </span>
-      
-      {show && (question || answer) && (
+
+      {show && items.length > 0 && (
         <div style={{
           position:'absolute', bottom:'120%', right: 0, background:'#1c2027', color:'#fdfcf8', borderRadius:10,
           padding:'12px 16px', fontSize:12, lineHeight:1.55, width:260, zIndex:200, marginBottom:8,
           boxShadow:'0 6px 24px rgba(0,0,0,0.3)', whiteSpace:'normal', textAlign:'left', pointerEvents:'none'
         }}>
-          {question && <div style={{ fontWeight:700, marginBottom:6, color:'#e8e4d8', fontSize: 11.5 }}>{question}</div>}
-          {answer ? <div style={{ color:'#a0c4e8', fontStyle:'italic', fontSize: 11 }}>"{answer}"</div>
-            : answered ? <div style={{ color:'#78808c', fontStyle:'italic', fontSize: 11 }}>Respuesta registrada</div>
-            : <div style={{ color:'#e87c7c', fontStyle:'italic', fontSize: 11 }}>Pendiente de respuesta</div>}
+          {items.map((q, i) => (
+            <div key={i} style={{ marginBottom: i < items.length - 1 ? 10 : 0 }}>
+              <div style={{ fontWeight:700, marginBottom:6, color:'#e8e4d8', fontSize: 11.5 }}>{q.question}</div>
+              {q.answer ? <div style={{ color:'#a0c4e8', fontStyle:'italic', fontSize: 11 }}>"{q.answer}"</div>
+                : q.answered ? <div style={{ color:'#78808c', fontStyle:'italic', fontSize: 11 }}>Respuesta registrada</div>
+                : <div style={{ color:'#e87c7c', fontStyle:'italic', fontSize: 11 }}>Pendiente de respuesta</div>}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -321,6 +327,10 @@ function SurveyTab({ analyses, groups, checklists }: {
     return res
   }, [rows, filterMode, search])
 
+  const answeredCount = useMemo(() => rows.filter(r => r.questionA?.answered || r.questionB?.answered).length, [rows])
+  const pendingCount = rows.length - answeredCount
+  const pct = rows.length ? Math.round((answeredCount / rows.length) * 100) : 0
+
   return (
     <div>
       {/* Compact Toolbar */}
@@ -342,57 +352,70 @@ function SurveyTab({ analyses, groups, checklists }: {
         <span style={{ fontSize:12, color:'#9aa0a6', marginLeft:'auto' }}>{filteredRows.length} cliente{filteredRows.length !== 1 ? 's' : ''}</span>
       </div>
 
-      {/* 4-column compact grid of clients */}
+      {/* Resumen general — aprovecha el ancho con datos útiles */}
+      {rows.length > 0 && (
+        <div style={{
+          display:'flex', alignItems:'center', gap:18, marginBottom:16, padding:'14px 20px',
+          background:'#fff', borderRadius:12, border:'1px solid rgba(20,36,92,0.06)',
+          boxShadow:'0 1px 3px rgba(0,0,0,0.02)', flexWrap:'wrap'
+        }}>
+          <div style={{ display:'flex', alignItems:'baseline', gap:7 }}>
+            <span style={{ fontSize:28, fontWeight:800, color:'var(--ink-900)', fontFamily:'var(--sans)', lineHeight:1 }}>{pct}%</span>
+            <span style={{ fontSize:13, color:'#9aa0a6' }}>respondido</span>
+          </div>
+          <div style={{ flex:1, minWidth:160, height:9, background:'rgba(180,58,58,0.14)', borderRadius:99, overflow:'hidden' }}>
+            <div style={{ width:`${pct}%`, height:'100%', background:'var(--teal)', borderRadius:99, transition:'width 0.3s' }} />
+          </div>
+          <div style={{ display:'flex', gap:16, fontSize:13, fontWeight:600 }}>
+            <span style={{ color:'var(--teal)' }}>✓ {answeredCount} respondidos</span>
+            <span style={{ color:'var(--crimson)' }}>✗ {pendingCount} pendientes</span>
+          </div>
+        </div>
+      )}
+
+      {/* Grid de clientes — tarjetas amplias que llenan el espacio */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
-        gap: '6px'
+        gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
+        gap: '10px'
       }}>
         {filteredRows.length === 0 ? (
           <div style={{ gridColumn: '1 / -1', padding: '40px 16px', textAlign: 'center', color: '#9aa0a6', fontSize: 13, fontStyle: 'italic' }}>
             No se encontraron clientes.
           </div>
         ) : filteredRows.map(row => {
+          const answered = !!(row.questionA?.answered || row.questionB?.answered)
           return (
             <div key={row.accountId} style={{
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: 'column',
               justifyContent: 'space-between',
-              padding: '6px 10px',
+              gap: 10,
+              padding: '14px 16px',
+              minHeight: 76,
               background: '#fff',
-              borderRadius: 8,
+              borderRadius: 10,
               border: '1px solid rgba(20,36,92,0.06)',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.01)',
+              borderLeft: `3px solid ${answered ? 'var(--teal)' : 'var(--crimson)'}`,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
               minWidth: 0
             }}>
               <span style={{
-                fontWeight: 600,
-                fontSize: 12.5,
+                fontWeight: 700,
+                fontSize: 13.5,
                 color: '#1c2027',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                marginRight: 6,
-                flex: 1
+                whiteSpace: 'nowrap'
               }} title={row.accountName}>
                 {row.accountName}
               </span>
-              
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                <SurveyCell 
-                  answered={row.questionA?.answered ?? false} 
-                  hasSurveyData={row.questionA !== null} 
-                  question={row.questionA?.question} 
-                  answer={row.questionA?.answer} 
-                  label="A"
-                />
-                <SurveyCell 
-                  answered={row.questionB?.answered ?? false} 
-                  hasSurveyData={row.questionB !== null} 
-                  question={row.questionB?.question} 
-                  answer={row.questionB?.answer} 
-                  label="B"
-                />
+
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ fontSize:11.5, fontWeight:600, color: answered ? 'var(--teal)' : 'var(--crimson)' }}>
+                  {answered ? 'Respondido' : 'Pendiente'}
+                </span>
+                <SurveyCell qA={row.questionA} qB={row.questionB} />
               </div>
             </div>
           )
@@ -863,7 +886,7 @@ function MondayTab() {
                           {/* Mini Summary Count and Last audit activity note */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, fontWeight: 600, color: '#78808c', marginTop: 2 }}>
                             <div style={{ display: 'flex', gap: 10 }}>
-                              {resp.completed > 0 && <span style={{ color: 'var(--teal)' }}>✓ {resp.completed} listas</span>}
+                              {resp.completed > 0 && <span style={{ color: 'var(--teal)' }}>✓ {resp.completed} completadas</span>}
                               {resp.inProgress > 0 && <span style={{ color: 'var(--amber)' }}>⏳ {resp.inProgress} en proceso</span>}
                               {resp.overdue > 0 && <span style={{ color: 'var(--crimson)' }}>⚠️ {resp.overdue} vencidas</span>}
                             </div>
