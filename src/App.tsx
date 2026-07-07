@@ -58,7 +58,84 @@ type SurveyRow = {
   lastSurveyDate: string | null
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── CSV Parser Types & Helpers ──────────────────────────────────────────────
+type AuditRecord = {
+  fecha: string
+  persona: string
+  rol: string
+  estado: string
+  ultima_actividad: string
+  eventos_acum_consultoria: number
+  eventos_politica: number
+  nota: string
+}
+
+function parseCSV(csvText: string): AuditRecord[] {
+  const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0)
+  if (lines.length < 2) return []
+  
+  const records: AuditRecord[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    const cols: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (let c = 0; c < line.length; c++) {
+      const char = line[c]
+      if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        cols.push(current.trim())
+        current = ''
+      } else {
+        current += char
+      }
+    }
+    cols.push(current.trim())
+    
+    if (cols.length >= 2) {
+      records.push({
+        fecha: cols[0] || '',
+        persona: cols[1] || '',
+        rol: cols[2] || '',
+        estado: cols[3] || '',
+        ultima_actividad: cols[4] || '',
+        eventos_acum_consultoria: parseInt(cols[5]) || 0,
+        eventos_politica: parseInt(cols[6]) || 0,
+        nota: cols[7] || '',
+      })
+    }
+  }
+  return records
+}
+
+function normalizeName(name: string) {
+  return name.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .replace(/[^a-z0-9]/g, ' ')      // remove non-alphanumeric
+    .trim()
+}
+
+function matchName(nameA: string, nameB: string): boolean {
+  const na = normalizeName(nameA)
+  const nb = normalizeName(nameB)
+  if (!na || !nb) return false
+  return na.includes(nb) || nb.includes(na)
+}
+
+function auditStatusColor(status: string): { bg: string; color: string; border: string } {
+  const s = status.toLowerCase()
+  if (['activo', 'arranco', 'reactivado', 'activo '].some(x => s.includes(x))) {
+    return { bg: 'rgba(31,143,124,0.1)', color: 'var(--teal)', border: 'rgba(31,143,124,0.2)' }
+  }
+  if (['enfriado', 'vigilar', 'kickoff'].some(x => s.includes(x))) {
+    return { bg: 'rgba(184,132,28,0.1)', color: 'var(--amber)', border: 'rgba(184,132,28,0.2)' }
+  }
+  return { bg: 'rgba(180,58,58,0.1)', color: 'var(--crimson)', border: 'rgba(180,58,58,0.2)' }
+}
+
+// ─── Common Helpers ──────────────────────────────────────────────────────────
 function lookupKey(v: string | null | undefined) {
   return String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
@@ -96,7 +173,6 @@ function isOverdue(dateStr: string | null) {
 }
 
 // ─── Components ──────────────────────────────────────────────────────────────
-
 function SurveyCell({ answered, hasSurveyData, question, answer }: {
   answered: boolean; hasSurveyData: boolean; question?: string; answer?: string
 }) {
@@ -149,21 +225,6 @@ function SurveyTab({ analyses, groups, checklists }: {
   const [search, setSearch] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'done' | 'pending'>('all')
 
-  const findChecklist = (accountId: string, accountName?: string) => {
-    const nn = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const asNumber = /^\d+$/.test(accountId.trim()) ? String(Number(accountId.trim())) : null
-    if (asNumber) {
-      const byNum = checklists.find(x => String(Number(x.data.account_number ?? -1)) === asNumber)
-      if (byNum) return byNum.data
-    }
-    for (const key of [accountId, accountName].filter(Boolean).map(k => nn(String(k)))) {
-      if (key.length < 3) continue
-      const m = checklists.find(x => nn(x.data.account_id ?? '') === key) ??
-        checklists.find(x => { const cn = nn(x.data.account_name ?? ''); return cn.length >= 3 && (cn.includes(key) || key.includes(cn)) })
-      if (m) return m.data
-    }
-    return null
-  }
 
   const latestSurveyByAccount = useMemo(() => {
     const map = new Map<string, { analysis: DailyAnalysis; survey: any }>()
@@ -213,8 +274,7 @@ function SurveyTab({ analyses, groups, checklists }: {
 
   const rows: SurveyRow[] = useMemo(() => {
     return accounts.map(acc => {
-      const checklist = findChecklist(acc.id, acc.name)
-      const hasContract = !!checklist?.contract?.vigencia
+      const hasContract = true // Treat all clients as active
       let entry = latestSurveyByAccount.get(acc.id)
       if (!entry) {
         const asNum = /^\d+$/.test(acc.id.trim()) ? String(Number(acc.id.trim())) : null
@@ -373,9 +433,14 @@ function SurveyTab({ analyses, groups, checklists }: {
 // ─── Monday Tab ───────────────────────────────────────────────────────────────
 function MondayTab() {
   const [boards, setBoards] = useState<MondayBoardWithItems[]>([])
+  const [auditRecords, setAuditRecords] = useState<AuditRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Navigation / Filter States
+  const [groupMode, setGroupMode] = useState<'responsables' | 'clientes'>('responsables')
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null)
+  const [selectedResponsible, setSelectedResponsible] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -383,22 +448,27 @@ function MondayTab() {
     async function load() {
       setLoading(true); setError(null)
       try {
-        // First get boards from Consultoria Cuentas workspace
-        const data = await mondayQuery<{ boards: any[] }>(`{
-          boards(workspace_ids: [${MONDAY_WORKSPACE_ID}], limit: 100) {
-            id name items_count
-            items_page(limit: 100) {
-              items {
-                id name
-                group { title }
-                column_values {
-                  id text value
+        const [mdata, csvText] = await Promise.all([
+          mondayQuery<{ boards: any[] }>(`{
+            boards(workspace_ids: [${MONDAY_WORKSPACE_ID}], limit: 100) {
+              id name items_count
+              items_page(limit: 100) {
+                items {
+                  id name
+                  group { title }
+                  column_values {
+                    id text value
+                  }
                 }
               }
             }
-          }
-        }`)
-        const result: MondayBoardWithItems[] = (data.boards || [])
+          }`),
+          fetch('/data/Historial_auditorias_Monday.csv')
+            .then(res => res.ok ? res.text() : '')
+            .catch(() => '')
+        ])
+
+        const boardsList: MondayBoardWithItems[] = (mdata.boards || [])
           .filter((b: any) => b.name && !['Prueba', 'Test'].includes(b.name))
           .map((b: any) => ({
             id: b.id,
@@ -406,9 +476,16 @@ function MondayTab() {
             items_count: b.items_count ?? 0,
             items: (b.items_page?.items || []) as MondayItem[],
           }))
-          .sort((a: MondayBoardWithItems, b: MondayBoardWithItems) => a.name.localeCompare(b.name))
-        setBoards(result)
-        if (result.length > 0) setSelectedBoard(result[0].id)
+          .sort((a, b) => a.name.localeCompare(b.name))
+          
+        setBoards(boardsList)
+        if (boardsList.length > 0) {
+          setSelectedBoard(boardsList[0].id)
+        }
+        
+        if (csvText) {
+          setAuditRecords(parseCSV(csvText))
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar Monday')
       } finally {
@@ -418,9 +495,87 @@ function MondayTab() {
     load()
   }, [])
 
-  const currentBoard = boards.find(b => b.id === selectedBoard)
+  // Get audit record for a given name
+  const getLatestAudit = (name: string) => {
+    const matches = auditRecords.filter(r => matchName(r.persona, name))
+    if (matches.length === 0) return null
+    return matches.reduce((latest, current) => {
+      return current.fecha > latest.fecha ? current : latest
+    }, matches[0])
+  }
 
-  // Collect all unique status values for filter
+  // Task checkers
+  const isCompleted = (status: string) => {
+    const t = status.toLowerCase()
+    return t.includes('concluid') || t.includes('listo') || t.includes('terminad') || t.includes('done') || t.includes('complet')
+  }
+
+  const checkOverdue = (dateStr: string | null) => {
+    if (!dateStr) return false
+    const d = new Date(dateStr + 'T23:59:59')
+    return d < new Date()
+  }
+
+  // 1. Gather all tasks and group by Assignee across all boards
+  const responsiblesData = useMemo(() => {
+    const map = new Map<string, {
+      name: string
+      total: number
+      completed: number
+      overdue: number
+      inProgress: number
+      tasks: (MondayItem & { boardName: string })[]
+      audit: AuditRecord | null
+    }>()
+
+    for (const board of boards) {
+      for (const item of board.items) {
+        const statusVal = item.column_values.find(cv => cv.id === 'color_mm452en1')?.text || ''
+        const dateVal   = item.column_values.find(cv => cv.id === 'date_mm45ncq9')?.text || null
+        const respVal   = item.column_values.find(cv => cv.id === 'multiple_person_mm453tee')?.text || ''
+        
+        const done = isCompleted(statusVal)
+        const overdue = !done && checkOverdue(dateVal)
+        const cat = done ? 'completed' : overdue ? 'overdue' : 'in_progress'
+
+        const assignees = respVal ? respVal.split(',').map(r => r.trim()) : ['Sin asignar']
+        for (const name of assignees) {
+          if (!map.has(name)) {
+            map.set(name, {
+              name,
+              total: 0,
+              completed: 0,
+              overdue: 0,
+              inProgress: 0,
+              tasks: [],
+              audit: getLatestAudit(name),
+            })
+          }
+          const s = map.get(name)!
+          s.total++
+          if (cat === 'completed') s.completed++
+          else if (cat === 'overdue') s.overdue++
+          else s.inProgress++
+          s.tasks.push({ ...item, boardName: board.name })
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      const aEvents = a.audit?.eventos_acum_consultoria ?? -1
+      const bEvents = b.audit?.eventos_acum_consultoria ?? -1
+      if (aEvents !== bEvents) {
+        return bEvents - aEvents
+      }
+      return b.total - a.total
+    })
+  }, [boards, auditRecords])
+
+  const selectedRespObj = responsiblesData.find(r => r.name === selectedResponsible)
+
+  // 2. Client-based logic (for 'clientes' mode)
+  const currentBoard = boards.find(b => b.id === selectedBoard)
+  
   const allStatuses = useMemo(() => {
     if (!currentBoard) return []
     const set = new Set<string>()
@@ -431,7 +586,35 @@ function MondayTab() {
     return Array.from(set).sort()
   }, [currentBoard])
 
-  const filteredItems = useMemo(() => {
+  // Stats by Assignee for the current selected board
+  const statsByAssignee = useMemo(() => {
+    if (!currentBoard) return []
+    const map = new Map<string, { completed: number; overdue: number; inProgress: number; total: number }>()
+    for (const item of currentBoard.items) {
+      const statusVal = item.column_values.find(cv => cv.id === 'color_mm452en1')?.text || ''
+      const dateVal   = item.column_values.find(cv => cv.id === 'date_mm45ncq9')?.text || null
+      const respVal   = item.column_values.find(cv => cv.id === 'multiple_person_mm453tee')?.text || ''
+      
+      const done = isCompleted(statusVal)
+      const overdue = !done && checkOverdue(dateVal)
+      const assignees = respVal ? respVal.split(',').map(r => r.trim()) : ['Sin asignar']
+      
+      for (const name of assignees) {
+        if (!map.has(name)) {
+          map.set(name, { completed: 0, overdue: 0, inProgress: 0, total: 0 })
+        }
+        const s = map.get(name)!
+        s.total++
+        if (done) s.completed++
+        else if (overdue) s.overdue++
+        else s.inProgress++
+      }
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total)
+  }, [currentBoard])
+
+  // Filter items in 'clientes' mode
+  const filteredClientItems = useMemo(() => {
     if (!currentBoard) return []
     let items = currentBoard.items
     if (search.trim()) {
@@ -447,63 +630,48 @@ function MondayTab() {
     return items
   }, [currentBoard, search, statusFilter])
 
-  // Stats by Assignee/Responsable
-  const statsByAssignee = useMemo(() => {
-    if (!currentBoard) return []
-    
-    const map = new Map<string, { completed: number; overdue: number; inProgress: number; total: number }>()
-    
-    const isCompleted = (status: string) => {
-      const t = status.toLowerCase()
-      return t.includes('concluid') || t.includes('listo') || t.includes('terminad') || t.includes('done') || t.includes('complet')
-    }
-
-    const checkOverdue = (dateStr: string | null) => {
-      if (!dateStr) return false
-      const d = new Date(dateStr + 'T23:59:59')
-      return d < new Date()
-    }
-
-    for (const item of currentBoard.items) {
-      const statusVal = item.column_values.find(cv => cv.id === 'color_mm452en1')?.text || ''
-      const dateVal   = item.column_values.find(cv => cv.id === 'date_mm45ncq9')?.text || null
-      const respVal   = item.column_values.find(cv => cv.id === 'multiple_person_mm453tee')?.text || ''
-      
-      const done = isCompleted(statusVal)
-      const overdue = !done && checkOverdue(dateVal)
-      
-      const assignees = respVal ? respVal.split(',').map(r => r.trim()) : ['Sin asignar']
-      
-      for (const name of assignees) {
-        if (!map.has(name)) {
-          map.set(name, { completed: 0, overdue: 0, inProgress: 0, total: 0 })
-        }
-        const s = map.get(name)!
-        s.total++
-        if (done) s.completed++
-        else if (overdue) s.overdue++
-        else s.inProgress++
-      }
-    }
-    
-    return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total)
-  }, [currentBoard])
-
-  // Group items by group title
-  const groupedItems = useMemo(() => {
+  const groupedClientItems = useMemo(() => {
     const map = new Map<string, MondayItem[]>()
-    for (const item of filteredItems) {
+    for (const item of filteredClientItems) {
       const gTitle = item.group?.title || 'Sin grupo'
       if (!map.has(gTitle)) map.set(gTitle, [])
       map.get(gTitle)!.push(item)
     }
     return Array.from(map.entries())
-  }, [filteredItems])
+  }, [filteredClientItems])
+
+  // Filter items in 'responsables' mode
+  const filteredRespItems = useMemo(() => {
+    if (!selectedRespObj) return []
+    let items = selectedRespObj.tasks
+    if (search.trim()) {
+      const q = lookupKey(search)
+      items = items.filter(item => lookupKey(item.name).includes(q))
+    }
+    if (statusFilter !== 'all') {
+      items = items.filter(item => {
+        const sv = item.column_values.find(cv => cv.id === 'color_mm452en1')
+        return sv?.text === statusFilter
+      })
+    }
+    return items
+  }, [selectedRespObj, search, statusFilter])
+
+  // List of unique statuses for the selected responsible
+  const respStatuses = useMemo(() => {
+    if (!selectedRespObj) return []
+    const set = new Set<string>()
+    for (const item of selectedRespObj.tasks) {
+      const sv = item.column_values.find(cv => cv.id === 'color_mm452en1')
+      if (sv?.text) set.add(sv.text)
+    }
+    return Array.from(set).sort()
+  }, [selectedRespObj])
 
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'60px 0', gap:16 }}>
       <div className="spinner" />
-      <span style={{ fontSize:15, color:'var(--char)' }}>Conectando con Monday.com...</span>
+      <span style={{ fontSize:15, color:'var(--char)' }}>Cargando tableros de Monday e Historial de Auditorías...</span>
     </div>
   )
 
@@ -516,252 +684,662 @@ function MondayTab() {
   )
 
   return (
-    <div style={{ display:'flex', gap:24, alignItems:'flex-start' }}>
-      {/* Sidebar: board list */}
-      <div style={{
-        width: 220,
-        flexShrink: 0,
-        position: 'sticky',
-        top: 20,
-        maxHeight: 'calc(100vh - 220px)',
-        overflowY: 'auto',
-        paddingRight: 8,
-        borderRight: '1px solid rgba(20,36,92,0.08)'
-      }}>
-        <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:10 }}>
-          Clientes ({boards.length})
-        </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
-          {boards.map(board => {
-            const active = board.id === selectedBoard
-            return (
-              <button key={board.id} onClick={() => { setSelectedBoard(board.id); setSearch(''); setStatusFilter('all') }}
-                style={{ textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', fontFamily:'var(--sans)', fontSize:12.5, fontWeight: active ? 700 : 400,
-                  background: active ? 'var(--ink-800)' : 'transparent', color: active ? '#fdfcf8' : 'var(--char)', transition:'all 0.12s',
-                  display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{board.name}</span>
-                <span style={{ fontSize:10, fontWeight:600, marginLeft:8, opacity:0.65, flexShrink:0,
-                  background: active ? 'rgba(255,255,255,0.2)' : 'rgba(20,36,92,0.1)', borderRadius:999, padding:'1px 7px' }}>
-                  {board.items_count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+    <div>
+      {/* View Mode Toggle Switch */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {(['responsables', 'clientes'] as const).map(mode => {
+          const active = groupMode === mode
+          return (
+            <button
+              key={mode}
+              onClick={() => {
+                setGroupMode(mode)
+                setSearch('')
+                setStatusFilter('all')
+                if (mode === 'responsables' && responsiblesData.length > 0 && !selectedResponsible) {
+                  setSelectedResponsible(null)
+                }
+                if (mode === 'clientes' && boards.length > 0) {
+                  setSelectedBoard(boards[0].id)
+                }
+              }}
+              style={{
+                padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                border: active ? '1px solid var(--ink-800)' : '1px solid rgba(20,36,92,0.15)',
+                background: active ? 'var(--ink-800)' : 'transparent',
+                color: active ? '#fdfcf8' : 'var(--char)',
+                cursor: 'pointer', transition: 'all 0.12s', fontFamily: 'var(--sans)'
+              }}
+            >
+              {mode === 'responsables' ? '👥 Por Responsables' : '🏢 Por Clientes'}
+            </button>
+          )
+        })}
       </div>
 
-      {/* Main: items for selected board */}
-      <div style={{ flex:1, minWidth:0 }}>
-        {currentBoard ? (
-          <>
-            {/* Avance por Responsable */}
-            {statsByAssignee.length > 0 && (
-              <div style={{
-                background: '#fdfcf7',
-                border: '1px solid rgba(20,36,92,0.08)',
-                borderRadius: 12,
-                padding: '16px 20px',
-                marginBottom: 20,
-                boxShadow: '0 1px 4px rgba(20,36,92,0.03)'
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#78808c', marginBottom: 12 }}>
-                  Avance por Responsable
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
-                  {statsByAssignee.map(([name, stat]) => {
-                    const pctCompleted = (stat.completed / stat.total) * 100
-                    const pctOverdue = (stat.overdue / stat.total) * 100
-                    const pctInProgress = (stat.inProgress / stat.total) * 100
-
-                    return (
-                      <div key={name} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
-                          <span style={{ fontWeight: 700, color: '#1c2027' }}>{name}</span>
-                          <span style={{ color: '#78808c', fontSize: 10.5, fontWeight: 600 }}>
-                            {stat.total} tarea{stat.total !== 1 ? 's' : ''}
-                          </span>
-                        </div>
-                        {/* Segmented bar */}
-                        <div style={{
-                          display: 'flex',
-                          height: 8,
-                          borderRadius: 999,
-                          background: 'rgba(20,36,92,0.06)',
-                          overflow: 'hidden',
-                          position: 'relative'
-                        }}>
-                          {stat.completed > 0 && (
-                            <div style={{ width: `${pctCompleted}%`, background: 'var(--teal)', height: '100%' }} title={`${stat.completed} completadas (${Math.round(pctCompleted)}%)`} />
-                          )}
-                          {stat.inProgress > 0 && (
-                            <div style={{ width: `${pctInProgress}%`, background: 'var(--amber)', height: '100%' }} title={`${stat.inProgress} en proceso (${Math.round(pctInProgress)}%)`} />
-                          )}
-                          {stat.overdue > 0 && (
-                            <div style={{ width: `${pctOverdue}%`, background: 'var(--crimson)', height: '100%' }} title={`${stat.overdue} vencidas (${Math.round(pctOverdue)}%)`} />
-                          )}
-                        </div>
-                        {/* Mini legends summary */}
-                        <div style={{ display: 'flex', gap: 8, fontSize: 10, fontWeight: 700, marginTop: 1 }}>
-                          {stat.completed > 0 && (
-                            <span style={{ color: 'var(--teal)' }}>
-                              ✓ {stat.completed}
-                            </span>
-                          )}
-                          {stat.inProgress > 0 && (
-                            <span style={{ color: 'var(--amber)' }}>
-                              ⏳ {stat.inProgress}
-                            </span>
-                          )}
-                          {stat.overdue > 0 && (
-                            <span style={{ color: 'var(--crimson)' }}>
-                              ⚠️ {stat.overdue}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
-              <div style={{ position:'relative', flex:1, minWidth:180 }}>
-                <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#9aa0a6', pointerEvents:'none' }}>🔍</span>
-                <input type="text" placeholder="Buscar tarea..." value={search} onChange={e => setSearch(e.target.value)}
-                  style={{ width:'100%', padding:'7px 12px 7px 32px', border:'1px solid rgba(20,36,92,0.15)', borderRadius:8, fontSize:13, background:'#fff', color:'var(--ink-900)', outline:'none', fontFamily:'var(--sans)' }} />
-              </div>
-              {allStatuses.length > 0 && (
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                  style={{ padding:'7px 12px', borderRadius:8, border:'1px solid rgba(20,36,92,0.15)', fontSize:13, background:'#fff', color:'var(--char)', fontFamily:'var(--sans)', cursor:'pointer', outline:'none' }}>
-                  <option value="all">Todos los estatus</option>
-                  {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              )}
-              <span style={{ fontSize:12, color:'#9aa0a6' }}>{filteredItems.length} tarea{filteredItems.length !== 1 ? 's' : ''}</span>
+      {groupMode === 'responsables' ? (
+        // ─── RESPONSIBLES VIEW MODE ───
+        <div style={{ display:'flex', gap:24, alignItems:'flex-start' }}>
+          {/* Left Sidebar: Responsibles list */}
+          <div style={{
+            width: 230,
+            flexShrink: 0,
+            position: 'sticky',
+            top: 20,
+            maxHeight: 'calc(100vh - 260px)',
+            overflowY: 'auto',
+            paddingRight: 8,
+            borderRight: '1px solid rgba(20,36,92,0.08)'
+          }}>
+            <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:12 }}>
+              Responsables Activos
             </div>
+            
+            <button
+              onClick={() => { setSelectedResponsible(null); setSearch(''); setStatusFilter('all') }}
+              style={{
+                width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                fontFamily: 'var(--sans)', fontSize: 13, fontWeight: selectedResponsible === null ? 700 : 400,
+                background: selectedResponsible === null ? 'var(--ink-800)' : 'rgba(20,36,92,0.04)',
+                color: selectedResponsible === null ? '#fdfcf8' : 'var(--ink-900)',
+                marginBottom: 10, transition: 'all 0.12s', display: 'flex', alignItems: 'center', gap: 6
+              }}
+            >
+              📊 Ver Resumen de Barras
+            </button>
 
-            {filteredItems.length === 0 ? (
-              <p style={{ textAlign:'center', color:'#9aa0a6', fontStyle:'italic', padding:'40px 0' }}>No hay tareas con los filtros actuales.</p>
-            ) : groupedItems.map(([groupTitle, items]) => (
-              <div key={groupTitle} style={{ marginBottom:24 }}>
-                <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:8, display:'flex', alignItems:'center', gap:8 }}>
-                  <div style={{ flex:1, height:1, background:'rgba(20,36,92,0.1)' }} />
-                  <span>{groupTitle}</span>
-                  <div style={{ flex:1, height:1, background:'rgba(20,36,92,0.1)' }} />
-                </div>
-                <div style={{ overflowX:'auto', borderRadius:12, boxShadow:'0 2px 10px rgba(20,36,92,0.07)', border:'1px solid rgba(20,36,92,0.08)' }}>
-                  <table style={{ width:'100%', borderCollapse:'collapse', fontFamily:'var(--sans)', fontSize:13, background:'#fff' }}>
-                    <thead>
-                      <tr style={{ background:'#f5f2ea' }}>
-                        <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', width:'40%' }}>Tarea</th>
-                        <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:120 }}>Estatus</th>
-                        <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:110 }}>Fecha de Entrega</th>
-                        <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Responsable</th>
-                        <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Tipo de Trabajo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((item, idx) => {
-                        const isEven = idx % 2 === 0
-                        const statusVal = item.column_values.find(cv => cv.id === 'color_mm452en1')?.text || ''
-                        const dateVal   = item.column_values.find(cv => cv.id === 'date_mm45ncq9')?.text || ''
-                        const responsible = item.column_values.find(cv => cv.id === 'multiple_person_mm453tee')?.text || ''
-                        const workType = item.column_values.find(cv => cv.id === 'color_mm4513mj')?.text || ''
-                        const linkJson = item.column_values.find(cv => cv.id === 'link_mm45byn3')?.value
-                        
-                        let deliverableUrl = ''
-                        let deliverableLabel = ''
-                        if (linkJson) {
-                          try {
-                            const parsed = JSON.parse(linkJson)
-                            deliverableUrl = parsed.url || ''
-                            const rawLabel = parsed.text || parsed.url || ''
-                            
-                            // Make label friendly & short to save screen space
-                            if (deliverableUrl.includes('docs.google.com/presentation')) {
-                              deliverableLabel = '📊 Presentación Google'
-                            } else if (deliverableUrl.includes('docs.google.com/document')) {
-                              deliverableLabel = '📝 Documento Google'
-                            } else if (deliverableUrl.includes('docs.google.com/spreadsheets')) {
-                              deliverableLabel = '📁 Hoja de Cálculo'
-                            } else if (deliverableUrl.includes('drive.google.com')) {
-                              deliverableLabel = '📂 Google Drive'
-                            } else {
-                              deliverableLabel = rawLabel.length > 25 ? '🔗 Entregable' : `🔗 ${rawLabel}`
-                            }
-                          } catch {
-                            // Try fallback if JSON parsing fails
-                          }
-                        }
+            <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+              {responsiblesData.map(resp => {
+                const active = resp.name === selectedResponsible
+                const audit = resp.audit
+                return (
+                  <button
+                    key={resp.name}
+                    onClick={() => { setSelectedResponsible(resp.name); setSearch(''); setStatusFilter('all') }}
+                    style={{
+                      textAlign:'left', padding:'9px 11px', borderRadius:8, border:'none', cursor:'pointer',
+                      fontFamily:'var(--sans)', fontSize:12.5, fontWeight: active ? 700 : 500,
+                      background: active ? 'var(--ink-800)' : 'transparent',
+                      color: active ? '#fdfcf8' : 'var(--char)', transition:'all 0.12s',
+                      display:'flex', flexDirection:'column', gap:3
+                    }}
+                  >
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%' }}>
+                      <span style={{ fontWeight: 700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {resp.name}
+                      </span>
+                      <span style={{ fontSize:10, opacity:0.65, flexShrink:0, background: active ? 'rgba(255,255,255,0.2)' : 'rgba(20,36,92,0.08)', borderRadius:999, padding:'1px 6px', fontWeight:700 }}>
+                        {resp.total} t
+                      </span>
+                    </div>
+                    {audit && (
+                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:9.5, opacity: active ? 0.85 : 0.65, fontWeight: 600 }}>
+                        <span>{audit.rol}</span>
+                        <span style={{ color: active ? '#fff' : 'var(--teal)' }}>{audit.eventos_acum_consultoria} eventos</span>
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
-                        const sc = statusColor(statusVal)
-                        const overdue = isOverdue(dateVal)
-                        return (
-                          <tr key={item.id} style={{ background: isEven ? '#fff' : '#faf8f3', borderBottom:'1px solid rgba(20,36,92,0.06)', transition:'background 0.1s' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = '#f0ede5')}
-                            onMouseLeave={e => (e.currentTarget.style.background = isEven ? '#fff' : '#faf8f3')}>
-                            <td style={{ padding:'10px 14px', verticalAlign:'middle', maxWidth: 300, wordBreak: 'break-word' }}>
-                              <div style={{ fontWeight:600, color:'#1c2027', lineHeight:1.35 }}>{item.name}</div>
-                              {deliverableUrl && (
-                                <div style={{ marginTop: 6 }}>
-                                  <a href={deliverableUrl} target="_blank" rel="noopener noreferrer" 
-                                    style={{
-                                      display: 'inline-flex', alignItems: 'center', gap: 5,
-                                      fontSize: 11, color: '#1d5ca8', background: 'rgba(39,96,185,0.06)',
-                                      padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(39,96,185,0.15)',
-                                      textDecoration: 'none', fontWeight: 600, transition: 'all 0.15s'
-                                    }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.12)')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.06)')}
-                                  >
-                                    {deliverableLabel}
-                                  </a>
-                                </div>
+          {/* Right Area */}
+          <div style={{ flex:1, minWidth:0 }}>
+            {selectedResponsible === null ? (
+              // ── COMPILATION DASHBOARD (No responsible selected) ──
+              <div>
+                <div style={{
+                  background: '#fdfcf7',
+                  border: '1px solid rgba(20,36,92,0.08)',
+                  borderRadius: 12,
+                  padding: '20px 24px',
+                  marginBottom: 20,
+                  boxShadow: '0 1px 4px rgba(20,36,92,0.03)'
+                }}>
+                  <h3 style={{ fontFamily: 'var(--caveat)', fontSize: 32, margin: '0 0 4px', color: 'var(--ink-900)' }}>
+                    Actividad de los Responsables
+                  </h3>
+                  <p style={{ fontSize: 13, color: 'var(--char)', margin: '0 0 20px' }}>
+                    Ordenados de mayor a menor actividad según el <strong>Historial de Auditorías de Monday</strong>. Haz clic en cualquier responsable para ver el desglose de sus tareas.
+                  </p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {responsiblesData.map(resp => {
+                      const audit = resp.audit
+                      const pctCompleted = (resp.completed / resp.total) * 100
+                      const pctOverdue = (resp.overdue / resp.total) * 100
+                      const pctInProgress = (resp.inProgress / resp.total) * 100
+                      const statusStyles = audit ? auditStatusColor(audit.estado) : null
+
+                      return (
+                        <div
+                          key={resp.name}
+                          onClick={() => setSelectedResponsible(resp.name)}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 6,
+                            padding: '12px 16px',
+                            background: '#fff',
+                            borderRadius: 10,
+                            border: '1px solid rgba(20,36,92,0.06)',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = 'rgba(20,36,92,0.18)'
+                            e.currentTarget.style.transform = 'translateY(-1px)'
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = 'rgba(20,36,92,0.06)'
+                            e.currentTarget.style.transform = 'translateY(0)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <strong style={{ fontSize: 15, color: 'var(--ink-900)' }}>{resp.name}</strong>
+                              {audit && (
+                                <span style={{ fontSize: 10.5, color: '#78808c', fontWeight: 600 }}>
+                                  ({audit.rol})
+                                </span>
                               )}
-                            </td>
-                            <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
-                              {statusVal ? (
-                                <span style={{ display:'inline-block', padding:'4px 10px', borderRadius:999, fontSize:11.5, fontWeight:600, background:sc.bg, color:sc.color, border:`1px solid ${sc.border}` }}>
-                                  {statusVal}
+                              {audit?.estado && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                                  background: statusStyles?.bg, color: statusStyles?.color, border: `1px solid ${statusStyles?.border}`
+                                }}>
+                                  {audit.estado.toUpperCase()}
                                 </span>
-                              ) : <span style={{ color:'#ccc' }}>--</span>}
-                            </td>
-                            <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
-                              {dateVal ? (
-                                <span style={{ fontSize:12.5, fontWeight: overdue ? 700 : 500, color: overdue ? '#a8453b' : '#3d434c', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
-                                  {overdue && <span title="Vencida" style={{ fontSize:14 }}>⚠️</span>}
-                                  {fmtDate(dateVal)}
+                              )}
+                            </div>
+                            
+                            <div style={{ fontSize: 12.5, color: 'var(--char)', display: 'flex', gap: 12 }}>
+                              {audit && (
+                                <span>
+                                  📈 <strong>{audit.eventos_acum_consultoria}</strong> eventos acumulados
                                 </span>
-                              ) : <span style={{ color:'#ccc', fontSize:12.5 }}>Sin fecha</span>}
-                            </td>
-                            <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
-                              {responsible ? (
-                                <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
-                                  {responsible.split(',').map((r, i) => (
-                                    <span key={i} style={{ fontSize:11.5, background:'rgba(39,69,133,0.06)', color:'#274585', padding:'1px 7px', borderRadius:999, border:'1px solid rgba(39,69,133,0.12)' }}>{r.trim()}</span>
-                                  ))}
-                                </div>
-                              ) : <span style={{ color:'#ccc', fontSize:12.5 }}>--</span>}
-                            </td>
-                            <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
-                              {workType ? (
-                                <span style={{ fontSize:12.5, fontWeight: 500, color:'var(--char)' }}>{workType}</span>
-                              ) : <span style={{ color:'#ccc', fontSize:12.5 }}>--</span>}
-                            </td>
-                          </tr>
+                              )}
+                              <span>
+                                📋 <strong>{resp.total}</strong> tareas en total
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Segmented Progress Bar */}
+                          <div style={{
+                            display: 'flex',
+                            height: 10,
+                            borderRadius: 999,
+                            background: 'rgba(20,36,92,0.05)',
+                            overflow: 'hidden',
+                            position: 'relative',
+                            marginTop: 4
+                          }}>
+                            {resp.completed > 0 && (
+                              <div style={{ width: `${pctCompleted}%`, background: 'var(--teal)', height: '100%' }} />
+                            )}
+                            {resp.inProgress > 0 && (
+                              <div style={{ width: `${pctInProgress}%`, background: 'var(--amber)', height: '100%' }} />
+                            )}
+                            {resp.overdue > 0 && (
+                              <div style={{ width: `${pctOverdue}%`, background: 'var(--crimson)', height: '100%' }} />
+                            )}
+                          </div>
+
+                          {/* Mini Summary Count and Last audit activity note */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, fontWeight: 600, color: '#78808c', marginTop: 2 }}>
+                            <div style={{ display: 'flex', gap: 10 }}>
+                              {resp.completed > 0 && <span style={{ color: 'var(--teal)' }}>✓ {resp.completed} listas</span>}
+                              {resp.inProgress > 0 && <span style={{ color: 'var(--amber)' }}>⏳ {resp.inProgress} en proceso</span>}
+                              {resp.overdue > 0 && <span style={{ color: 'var(--crimson)' }}>⚠️ {resp.overdue} vencidas</span>}
+                            </div>
+                            {audit?.nota && (
+                              <span style={{ fontStyle: 'italic', fontWeight: 500, color: 'var(--char)' }}>
+                                "{audit.nota}"
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // ── RESPONSIBLE DETAILS AND THEIR TASKS (Responsible is selected) ──
+              <>
+                {selectedRespObj && (
+                  <div style={{
+                    background: '#fdfcf7',
+                    border: '1px solid rgba(20,36,92,0.08)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    marginBottom: 20,
+                    boxShadow: '0 1px 4px rgba(20,36,92,0.03)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#78808c', marginBottom: 2 }}>
+                          Resumen de Tareas
+                        </div>
+                        <h2 style={{ fontFamily: 'var(--caveat)', fontSize: 36, margin: 0, color: 'var(--ink-900)', lineHeight: 1.1 }}>
+                          {selectedRespObj.name}
+                        </h2>
+                        {selectedRespObj.audit && (
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, fontSize: 12 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--char)' }}>{selectedRespObj.audit.rol}</span>
+                            <span style={{ color: '#ccc' }}>·</span>
+                            <span style={{
+                              fontWeight: 700, fontSize: 10.5, padding: '1px 8px', borderRadius: 999,
+                              background: auditStatusColor(selectedRespObj.audit.estado).bg,
+                              color: auditStatusColor(selectedRespObj.audit.estado).color
+                            }}>
+                              {selectedRespObj.audit.estado.toUpperCase()}
+                            </span>
+                            <span style={{ color: '#ccc' }}>·</span>
+                            <span style={{ color: 'var(--char)' }}>
+                              Última auditoría: <strong>{fmtDate(selectedRespObj.audit.ultima_actividad)}</strong> ({selectedRespObj.audit.eventos_acum_consultoria} eventos)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <button
+                        onClick={() => setSelectedResponsible(null)}
+                        style={{
+                          padding: '5px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 600,
+                          border: '1px solid rgba(20,36,92,0.15)', background: '#fff', color: 'var(--char)',
+                          cursor: 'pointer', transition: 'all 0.12s'
+                        }}
+                      >
+                        ← Volver a todos
+                      </button>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <div style={{
+                        flex: 1, display: 'flex', height: 10, borderRadius: 999,
+                        background: 'rgba(20,36,92,0.06)', overflow: 'hidden', position: 'relative'
+                      }}>
+                        {selectedRespObj.completed > 0 && (
+                          <div style={{ width: `${(selectedRespObj.completed / selectedRespObj.total) * 100}%`, background: 'var(--teal)', height: '100%' }} />
+                        )}
+                        {selectedRespObj.inProgress > 0 && (
+                          <div style={{ width: `${(selectedRespObj.inProgress / selectedRespObj.total) * 100}%`, background: 'var(--amber)', height: '100%' }} />
+                        )}
+                        {selectedRespObj.overdue > 0 && (
+                          <div style={{ width: `${(selectedRespObj.overdue / selectedRespObj.total) * 100}%`, background: 'var(--crimson)', height: '100%' }} />
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                        {selectedRespObj.completed > 0 && <span style={{ color: 'var(--teal)' }}>✓ {selectedRespObj.completed}</span>}
+                        {selectedRespObj.inProgress > 0 && <span style={{ color: 'var(--amber)' }}>⏳ {selectedRespObj.inProgress}</span>}
+                        {selectedRespObj.overdue > 0 && <span style={{ color: 'var(--crimson)' }}>⚠️ {selectedRespObj.overdue}</span>}
+                        <span style={{ color: '#78808c' }}>Total: {selectedRespObj.total}</span>
+                      </div>
+                    </div>
+                    
+                    {selectedRespObj.audit?.nota && (
+                      <p style={{ margin: '10px 0 0 0', fontSize: 12, fontStyle: 'italic', color: 'var(--char)' }}>
+                        Nota auditoría: "{selectedRespObj.audit.nota}"
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Toolbar */}
+                <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+                  <div style={{ position:'relative', flex:1, minWidth:180 }}>
+                    <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#9aa0a6', pointerEvents:'none' }}>🔍</span>
+                    <input type="text" placeholder="Buscar tarea..." value={search} onChange={e => setSearch(e.target.value)}
+                      style={{ width:'100%', padding:'7px 12px 7px 32px', border:'1px solid rgba(20,36,92,0.15)', borderRadius:8, fontSize:13, background:'#fff', color:'var(--ink-900)', outline:'none', fontFamily:'var(--sans)' }} />
+                  </div>
+                  {respStatuses.length > 0 && (
+                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                      style={{ padding:'7px 12px', borderRadius:8, border:'1px solid rgba(20,36,92,0.15)', fontSize:13, background:'#fff', color:'var(--char)', fontFamily:'var(--sans)', cursor:'pointer', outline:'none' }}>
+                      <option value="all">Todos los estatus</option>
+                      {respStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  )}
+                  <span style={{ fontSize:12, color:'#9aa0a6' }}>{filteredRespItems.length} tarea{filteredRespItems.length !== 1 ? 's' : ''}</span>
+                </div>
+
+                {filteredRespItems.length === 0 ? (
+                  <p style={{ textAlign:'center', color:'#9aa0a6', fontStyle:'italic', padding:'40px 0' }}>No hay tareas con los filtros actuales.</p>
+                ) : (
+                  <div style={{ overflowX:'auto', borderRadius:12, boxShadow:'0 2px 10px rgba(20,36,92,0.07)', border:'1px solid rgba(20,36,92,0.08)' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontFamily:'var(--sans)', fontSize:13, background:'#fff' }}>
+                      <thead>
+                        <tr style={{ background:'#f5f2ea' }}>
+                          <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:140 }}>Cliente</th>
+                          <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', width:'40%' }}>Tarea</th>
+                          <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:120 }}>Estatus</th>
+                          <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:110 }}>Fecha de Entrega</th>
+                          <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Tipo de Trabajo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRespItems.map((item, idx) => {
+                          const isEven = idx % 2 === 0
+                          const statusVal = item.column_values.find(cv => cv.id === 'color_mm452en1')?.text || ''
+                          const dateVal   = item.column_values.find(cv => cv.id === 'date_mm45ncq9')?.text || ''
+                          const workType = item.column_values.find(cv => cv.id === 'color_mm4513mj')?.text || ''
+                          const linkJson = item.column_values.find(cv => cv.id === 'link_mm45byn3')?.value
+                          
+                          let deliverableUrl = ''
+                          let deliverableLabel = ''
+                          if (linkJson) {
+                            try {
+                              const parsed = JSON.parse(linkJson)
+                              deliverableUrl = parsed.url || ''
+                              const rawLabel = parsed.text || parsed.url || ''
+                              
+                              if (deliverableUrl.includes('docs.google.com/presentation')) {
+                                deliverableLabel = '📊 Presentación Google'
+                              } else if (deliverableUrl.includes('docs.google.com/document')) {
+                                deliverableLabel = '📝 Documento Google'
+                              } else if (deliverableUrl.includes('docs.google.com/spreadsheets')) {
+                                deliverableLabel = '📁 Hoja de Cálculo'
+                              } else if (deliverableUrl.includes('drive.google.com')) {
+                                deliverableLabel = '📂 Google Drive'
+                              } else {
+                                deliverableLabel = rawLabel.length > 25 ? '🔗 Entregable' : `🔗 ${rawLabel}`
+                              }
+                            } catch {}
+                          }
+
+                          const sc = statusColor(statusVal)
+                          const overdue = isOverdue(dateVal)
+                          return (
+                            <tr key={item.id} style={{ background: isEven ? '#fff' : '#faf8f3', borderBottom:'1px solid rgba(20,36,92,0.06)', transition:'background 0.1s' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f0ede5')}
+                              onMouseLeave={e => (e.currentTarget.style.background = isEven ? '#fff' : '#faf8f3')}>
+                              <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
+                                <span style={{ fontWeight: 700, color: 'var(--ink-800)', fontSize: 13.5 }}>
+                                  {item.boardName}
+                                </span>
+                              </td>
+                              <td style={{ padding:'10px 14px', verticalAlign:'middle', maxWidth: 260, wordBreak: 'break-word' }}>
+                                <div style={{ fontWeight:600, color:'#1c2027', lineHeight:1.35 }}>{item.name}</div>
+                                {deliverableUrl && (
+                                  <div style={{ marginTop: 6 }}>
+                                    <a href={deliverableUrl} target="_blank" rel="noopener noreferrer" 
+                                      style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                                        fontSize: 11, color: '#1d5ca8', background: 'rgba(39,96,185,0.06)',
+                                        padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(39,96,185,0.15)',
+                                        textDecoration: 'none', fontWeight: 600, transition: 'all 0.15s'
+                                      }}
+                                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.12)')}
+                                      onMouseLeave={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.06)')}
+                                    >
+                                      {deliverableLabel}
+                                    </a>
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
+                                {statusVal ? (
+                                  <span style={{ display:'inline-block', padding:'4px 10px', borderRadius:999, fontSize:11.5, fontWeight:600, background:sc.bg, color:sc.color, border:`1px solid ${sc.border}` }}>
+                                    {statusVal}
+                                  </span>
+                                ) : <span style={{ color:'#ccc' }}>--</span>}
+                              </td>
+                              <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
+                                {dateVal ? (
+                                  <span style={{ fontSize:12.5, fontWeight: overdue ? 700 : 500, color: overdue ? '#a8453b' : '#3d434c', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
+                                    {overdue && <span title="Vencida" style={{ fontSize:14 }}>⚠️</span>}
+                                    {fmtDate(dateVal)}
+                                  </span>
+                                ) : <span style={{ color:'#ccc', fontSize:12.5 }}>Sin fecha</span>}
+                              </td>
+                              <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
+                                {workType ? (
+                                  <span style={{ fontSize:12.5, fontWeight: 500, color:'var(--char)' }}>{workType}</span>
+                                ) : <span style={{ color:'#ccc', fontSize:12.5 }}>--</span>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        // ─── CLIENTS VIEW MODE ───
+        <div style={{ display:'flex', gap:24, alignItems:'flex-start' }}>
+          {/* Left Sidebar: Client board list */}
+          <div style={{
+            width: 220,
+            flexShrink: 0,
+            position: 'sticky',
+            top: 20,
+            maxHeight: 'calc(100vh - 260px)',
+            overflowY: 'auto',
+            paddingRight: 8,
+            borderRight: '1px solid rgba(20,36,92,0.08)'
+          }}>
+            <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:10 }}>
+              Clientes ({boards.length})
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+              {boards.map(board => {
+                const active = board.id === selectedBoard
+                return (
+                  <button key={board.id} onClick={() => { setSelectedBoard(board.id); setSearch(''); setStatusFilter('all') }}
+                    style={{ textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', fontFamily:'var(--sans)', fontSize:12.5, fontWeight: active ? 700 : 400,
+                      background: active ? 'var(--ink-800)' : 'transparent', color: active ? '#fdfcf8' : 'var(--char)', transition:'all 0.12s',
+                      display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{board.name}</span>
+                    <span style={{ fontSize:10, fontWeight:600, marginLeft:8, opacity:0.65, flexShrink:0,
+                      background: active ? 'rgba(255,255,255,0.2)' : 'rgba(20,36,92,0.1)', borderRadius:999, padding:'1px 7px' }}>
+                      {board.items_count}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Right Area: selected client tasks */}
+          <div style={{ flex:1, minWidth:0 }}>
+            {currentBoard ? (
+              <>
+                {/* Avance por Responsable */}
+                {statsByAssignee.length > 0 && (
+                  <div style={{
+                    background: '#fdfcf7',
+                    border: '1px solid rgba(20,36,92,0.08)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    marginBottom: 20,
+                    boxShadow: '0 1px 4px rgba(20,36,92,0.03)'
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#78808c', marginBottom: 12 }}>
+                      Avance por Responsable
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+                      {statsByAssignee.map(([name, stat]) => {
+                        const pctCompleted = (stat.completed / stat.total) * 100
+                        const pctOverdue = (stat.overdue / stat.total) * 100
+                        const pctInProgress = (stat.inProgress / stat.total) * 100
+
+                        return (
+                          <div key={name} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                              <span style={{ fontWeight: 700, color: '#1c2027' }}>{name}</span>
+                              <span style={{ color: '#78808c', fontSize: 10.5, fontWeight: 600 }}>
+                                {stat.total} tarea{stat.total !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            <div style={{
+                              display: 'flex', height: 8, borderRadius: 999,
+                              background: 'rgba(20,36,92,0.06)', overflow: 'hidden', position: 'relative'
+                            }}>
+                              {stat.completed > 0 && (
+                                <div style={{ width: `${pctCompleted}%`, background: 'var(--teal)', height: '100%' }} />
+                              )}
+                              {stat.inProgress > 0 && (
+                                <div style={{ width: `${pctInProgress}%`, background: 'var(--amber)', height: '100%' }} />
+                              )}
+                              {stat.overdue > 0 && (
+                                <div style={{ width: `${pctOverdue}%`, background: 'var(--crimson)', height: '100%' }} />
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, fontSize: 10, fontWeight: 700, marginTop: 1 }}>
+                              {stat.completed > 0 && <span style={{ color: 'var(--teal)' }}>✓ {stat.completed}</span>}
+                              {stat.inProgress > 0 && <span style={{ color: 'var(--amber)' }}>⏳ {stat.inProgress}</span>}
+                              {stat.overdue > 0 && <span style={{ color: 'var(--crimson)' }}>⚠️ {stat.overdue}</span>}
+                            </div>
+                          </div>
                         )
                       })}
-                    </tbody>
-                  </table>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+                  <div style={{ position:'relative', flex:1, minWidth:180 }}>
+                    <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#9aa0a6', pointerEvents:'none' }}>🔍</span>
+                    <input type="text" placeholder="Buscar tarea..." value={search} onChange={e => setSearch(e.target.value)}
+                      style={{ width:'100%', padding:'7px 12px 7px 32px', border:'1px solid rgba(20,36,92,0.15)', borderRadius:8, fontSize:13, background:'#fff', color:'var(--ink-900)', outline:'none', fontFamily:'var(--sans)' }} />
+                  </div>
+                  {allStatuses.length > 0 && (
+                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                      style={{ padding:'7px 12px', borderRadius:8, border:'1px solid rgba(20,36,92,0.15)', fontSize:13, background:'#fff', color:'var(--char)', fontFamily:'var(--sans)', cursor:'pointer', outline:'none' }}>
+                      <option value="all">Todos los estatus</option>
+                      {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  )}
+                  <span style={{ fontSize:12, color:'#9aa0a6' }}>{filteredClientItems.length} tarea{filteredClientItems.length !== 1 ? 's' : ''}</span>
                 </div>
-              </div>
-            ))}
-          </>
-        ) : (
-          <p style={{ color:'#9aa0a6', fontStyle:'italic' }}>Selecciona un cliente del panel izquierdo.</p>
-        )}
-      </div>
+
+                {filteredClientItems.length === 0 ? (
+                  <p style={{ textAlign:'center', color:'#9aa0a6', fontStyle:'italic', padding:'40px 0' }}>No hay tareas con los filtros actuales.</p>
+                ) : groupedClientItems.map(([groupTitle, items]) => (
+                  <div key={groupTitle} style={{ marginBottom:24 }}>
+                    <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:8, display:'flex', alignItems:'center', gap:8 }}>
+                      <div style={{ flex:1, height:1, background:'rgba(20,36,92,0.1)' }} />
+                      <span>{groupTitle}</span>
+                      <div style={{ flex:1, height:1, background:'rgba(20,36,92,0.1)' }} />
+                    </div>
+                    <div style={{ overflowX:'auto', borderRadius:12, boxShadow:'0 2px 10px rgba(20,36,92,0.07)', border:'1px solid rgba(20,36,92,0.08)' }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontFamily:'var(--sans)', fontSize:13, background:'#fff' }}>
+                        <thead>
+                          <tr style={{ background:'#f5f2ea' }}>
+                            <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', width:'45%' }}>Tarea</th>
+                            <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:120 }}>Estatus</th>
+                            <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:110 }}>Fecha de Entrega</th>
+                            <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Responsable</th>
+                            <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Tipo de Trabajo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((item, idx) => {
+                            const isEven = idx % 2 === 0
+                            const statusVal = item.column_values.find(cv => cv.id === 'color_mm452en1')?.text || ''
+                            const dateVal   = item.column_values.find(cv => cv.id === 'date_mm45ncq9')?.text || ''
+                            const responsible = item.column_values.find(cv => cv.id === 'multiple_person_mm453tee')?.text || ''
+                            const workType = item.column_values.find(cv => cv.id === 'color_mm4513mj')?.text || ''
+                            const linkJson = item.column_values.find(cv => cv.id === 'link_mm45byn3')?.value
+                            
+                            let deliverableUrl = ''
+                            let deliverableLabel = ''
+                            if (linkJson) {
+                              try {
+                                const parsed = JSON.parse(linkJson)
+                                deliverableUrl = parsed.url || ''
+                                const rawLabel = parsed.text || parsed.url || ''
+                                if (deliverableUrl.includes('docs.google.com/presentation')) {
+                                  deliverableLabel = '📊 Presentación Google'
+                                } else if (deliverableUrl.includes('docs.google.com/document')) {
+                                  deliverableLabel = '📝 Documento Google'
+                                } else if (deliverableUrl.includes('docs.google.com/spreadsheets')) {
+                                  deliverableLabel = '📁 Hoja de Cálculo'
+                                } else if (deliverableUrl.includes('drive.google.com')) {
+                                  deliverableLabel = '📂 Google Drive'
+                                } else {
+                                  deliverableLabel = rawLabel.length > 25 ? '🔗 Entregable' : `🔗 ${rawLabel}`
+                                }
+                              } catch {}
+                            }
+
+                            const sc = statusColor(statusVal)
+                            const overdue = isOverdue(dateVal)
+                            return (
+                              <tr key={item.id} style={{ background: isEven ? '#fff' : '#faf8f3', borderBottom:'1px solid rgba(20,36,92,0.06)', transition:'background 0.1s' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#f0ede5')}
+                                onMouseLeave={e => (e.currentTarget.style.background = isEven ? '#fff' : '#faf8f3')}>
+                                <td style={{ padding:'10px 14px', verticalAlign:'middle', maxWidth: 300, wordBreak: 'break-word' }}>
+                                  <div style={{ fontWeight:600, color:'#1c2027', lineHeight:1.35 }}>{item.name}</div>
+                                  {deliverableUrl && (
+                                    <div style={{ marginTop: 6 }}>
+                                      <a href={deliverableUrl} target="_blank" rel="noopener noreferrer" 
+                                        style={{
+                                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                                          fontSize: 11, color: '#1d5ca8', background: 'rgba(39,96,185,0.06)',
+                                          padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(39,96,185,0.15)',
+                                          textDecoration: 'none', fontWeight: 600, transition: 'all 0.15s'
+                                        }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.12)')}
+                                        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.06)')}
+                                      >
+                                        {deliverableLabel}
+                                      </a>
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
+                                  {statusVal ? (
+                                    <span style={{ display:'inline-block', padding:'4px 10px', borderRadius:999, fontSize:11.5, fontWeight:600, background:sc.bg, color:sc.color, border:`1px solid ${sc.border}` }}>
+                                      {statusVal}
+                                    </span>
+                                  ) : <span style={{ color:'#ccc' }}>--</span>}
+                                </td>
+                                <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
+                                  {dateVal ? (
+                                    <span style={{ fontSize:12.5, fontWeight: overdue ? 700 : 500, color: overdue ? '#a8453b' : '#3d434c', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
+                                      {overdue && <span title="Vencida" style={{ fontSize:14 }}>⚠️</span>}
+                                      {fmtDate(dateVal)}
+                                    </span>
+                                  ) : <span style={{ color:'#ccc', fontSize:12.5 }}>Sin fecha</span>}
+                                </td>
+                                <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
+                                  {responsible ? (
+                                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                                      {responsible.split(',').map((r, i) => (
+                                        <span key={i} style={{ fontSize:11.5, background:'rgba(39,69,133,0.06)', color:'#274585', padding:'1px 7px', borderRadius:999, border:'1px solid rgba(39,69,133,0.12)' }}>{r.trim()}</span>
+                                      ))}
+                                    </div>
+                                  ) : <span style={{ color:'#ccc', fontSize:12.5 }}>--</span>}
+                                </td>
+                                <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
+                                  {workType ? (
+                                    <span style={{ fontSize:12.5, fontWeight: 500, color:'var(--char)' }}>{workType}</span>
+                                  ) : <span style={{ color:'#ccc', fontSize:12.5 }}>--</span>}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p style={{ color:'#9aa0a6', fontStyle:'italic' }}>Selecciona un cliente del panel izquierdo.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
