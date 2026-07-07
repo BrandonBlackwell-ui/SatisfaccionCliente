@@ -447,6 +447,48 @@ function MondayTab() {
     return items
   }, [currentBoard, search, statusFilter])
 
+  // Stats by Assignee/Responsable
+  const statsByAssignee = useMemo(() => {
+    if (!currentBoard) return []
+    
+    const map = new Map<string, { completed: number; overdue: number; inProgress: number; total: number }>()
+    
+    const isCompleted = (status: string) => {
+      const t = status.toLowerCase()
+      return t.includes('concluid') || t.includes('listo') || t.includes('terminad') || t.includes('done') || t.includes('complet')
+    }
+
+    const checkOverdue = (dateStr: string | null) => {
+      if (!dateStr) return false
+      const d = new Date(dateStr + 'T23:59:59')
+      return d < new Date()
+    }
+
+    for (const item of currentBoard.items) {
+      const statusVal = item.column_values.find(cv => cv.id === 'color_mm452en1')?.text || ''
+      const dateVal   = item.column_values.find(cv => cv.id === 'date_mm45ncq9')?.text || null
+      const respVal   = item.column_values.find(cv => cv.id === 'multiple_person_mm453tee')?.text || ''
+      
+      const done = isCompleted(statusVal)
+      const overdue = !done && checkOverdue(dateVal)
+      
+      const assignees = respVal ? respVal.split(',').map(r => r.trim()) : ['Sin asignar']
+      
+      for (const name of assignees) {
+        if (!map.has(name)) {
+          map.set(name, { completed: 0, overdue: 0, inProgress: 0, total: 0 })
+        }
+        const s = map.get(name)!
+        s.total++
+        if (done) s.completed++
+        else if (overdue) s.overdue++
+        else s.inProgress++
+      }
+    }
+    
+    return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total)
+  }, [currentBoard])
+
   // Group items by group title
   const groupedItems = useMemo(() => {
     const map = new Map<string, MondayItem[]>()
@@ -512,6 +554,77 @@ function MondayTab() {
       <div style={{ flex:1, minWidth:0 }}>
         {currentBoard ? (
           <>
+            {/* Avance por Responsable */}
+            {statsByAssignee.length > 0 && (
+              <div style={{
+                background: '#fdfcf7',
+                border: '1px solid rgba(20,36,92,0.08)',
+                borderRadius: 12,
+                padding: '16px 20px',
+                marginBottom: 20,
+                boxShadow: '0 1px 4px rgba(20,36,92,0.03)'
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#78808c', marginBottom: 12 }}>
+                  Avance por Responsable
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+                  {statsByAssignee.map(([name, stat]) => {
+                    const pctCompleted = (stat.completed / stat.total) * 100
+                    const pctOverdue = (stat.overdue / stat.total) * 100
+                    const pctInProgress = (stat.inProgress / stat.total) * 100
+
+                    return (
+                      <div key={name} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                          <span style={{ fontWeight: 700, color: '#1c2027' }}>{name}</span>
+                          <span style={{ color: '#78808c', fontSize: 10.5, fontWeight: 600 }}>
+                            {stat.total} tarea{stat.total !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        {/* Segmented bar */}
+                        <div style={{
+                          display: 'flex',
+                          height: 8,
+                          borderRadius: 999,
+                          background: 'rgba(20,36,92,0.06)',
+                          overflow: 'hidden',
+                          position: 'relative'
+                        }}>
+                          {stat.completed > 0 && (
+                            <div style={{ width: `${pctCompleted}%`, background: 'var(--teal)', height: '100%' }} title={`${stat.completed} completadas (${Math.round(pctCompleted)}%)`} />
+                          )}
+                          {stat.inProgress > 0 && (
+                            <div style={{ width: `${pctInProgress}%`, background: 'var(--amber)', height: '100%' }} title={`${stat.inProgress} en proceso (${Math.round(pctInProgress)}%)`} />
+                          )}
+                          {stat.overdue > 0 && (
+                            <div style={{ width: `${pctOverdue}%`, background: 'var(--crimson)', height: '100%' }} title={`${stat.overdue} vencidas (${Math.round(pctOverdue)}%)`} />
+                          )}
+                        </div>
+                        {/* Mini legends summary */}
+                        <div style={{ display: 'flex', gap: 8, fontSize: 10, fontWeight: 700, marginTop: 1 }}>
+                          {stat.completed > 0 && (
+                            <span style={{ color: 'var(--teal)' }}>
+                              ✓ {stat.completed}
+                            </span>
+                          )}
+                          {stat.inProgress > 0 && (
+                            <span style={{ color: 'var(--amber)' }}>
+                              ⏳ {stat.inProgress}
+                            </span>
+                          )}
+                          {stat.overdue > 0 && (
+                            <span style={{ color: 'var(--crimson)' }}>
+                              ⚠️ {stat.overdue}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
               <div style={{ position:'relative', flex:1, minWidth:180 }}>
                 <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#9aa0a6', pointerEvents:'none' }}>🔍</span>
