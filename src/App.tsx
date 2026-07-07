@@ -476,7 +476,16 @@ function MondayTab() {
   return (
     <div style={{ display:'flex', gap:24, alignItems:'flex-start' }}>
       {/* Sidebar: board list */}
-      <div style={{ width:220, flexShrink:0 }}>
+      <div style={{
+        width: 220,
+        flexShrink: 0,
+        position: 'sticky',
+        top: 20,
+        maxHeight: 'calc(100vh - 220px)',
+        overflowY: 'auto',
+        paddingRight: 8,
+        borderRight: '1px solid rgba(20,36,92,0.08)'
+      }}>
         <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:10 }}>
           Clientes ({boards.length})
         </div>
@@ -485,7 +494,7 @@ function MondayTab() {
             const active = board.id === selectedBoard
             return (
               <button key={board.id} onClick={() => { setSelectedBoard(board.id); setSearch(''); setStatusFilter('all') }}
-                style={{ textAlign:'left', padding:'9px 13px', borderRadius:8, border:'none', cursor:'pointer', fontFamily:'var(--sans)', fontSize:13, fontWeight: active ? 700 : 400,
+                style={{ textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', fontFamily:'var(--sans)', fontSize:12.5, fontWeight: active ? 700 : 400,
                   background: active ? 'var(--ink-800)' : 'transparent', color: active ? '#fdfcf8' : 'var(--char)', transition:'all 0.12s',
                   display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                 <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{board.name}</span>
@@ -522,7 +531,7 @@ function MondayTab() {
             {filteredItems.length === 0 ? (
               <p style={{ textAlign:'center', color:'#9aa0a6', fontStyle:'italic', padding:'40px 0' }}>No hay tareas con los filtros actuales.</p>
             ) : groupedItems.map(([groupTitle, items]) => (
-              <div key={groupTitle} style={{ marginBottom:28 }}>
+              <div key={groupTitle} style={{ marginBottom:24 }}>
                 <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', color:'#78808c', marginBottom:8, display:'flex', alignItems:'center', gap:8 }}>
                   <div style={{ flex:1, height:1, background:'rgba(20,36,92,0.1)' }} />
                   <span>{groupTitle}</span>
@@ -532,11 +541,11 @@ function MondayTab() {
                   <table style={{ width:'100%', borderCollapse:'collapse', fontFamily:'var(--sans)', fontSize:13, background:'#fff' }}>
                     <thead>
                       <tr style={{ background:'#f5f2ea' }}>
-                        <th style={{ padding:'11px 16px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca' }}>Tarea</th>
-                        <th style={{ padding:'11px 16px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Estatus</th>
-                        <th style={{ padding:'11px 16px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:120 }}>Fecha de Entrega</th>
-                        <th style={{ padding:'11px 16px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:140 }}>Responsable</th>
-                        <th style={{ padding:'11px 16px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:140 }}>Tipo de Trabajo</th>
+                        <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', width:'40%' }}>Tarea</th>
+                        <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:120 }}>Estatus</th>
+                        <th style={{ padding:'10px 14px', textAlign:'center', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:110 }}>Fecha de Entrega</th>
+                        <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Responsable</th>
+                        <th style={{ padding:'10px 14px', textAlign:'left', fontSize:10.5, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', color:'#78808c', borderBottom:'2px solid #e4ddca', minWidth:130 }}>Tipo de Trabajo</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -549,14 +558,27 @@ function MondayTab() {
                         const linkJson = item.column_values.find(cv => cv.id === 'link_mm45byn3')?.value
                         
                         let deliverableUrl = ''
-                        let deliverableText = ''
+                        let deliverableLabel = ''
                         if (linkJson) {
                           try {
                             const parsed = JSON.parse(linkJson)
                             deliverableUrl = parsed.url || ''
-                            deliverableText = parsed.text || parsed.url || ''
+                            const rawLabel = parsed.text || parsed.url || ''
+                            
+                            // Make label friendly & short to save screen space
+                            if (deliverableUrl.includes('docs.google.com/presentation')) {
+                              deliverableLabel = '📊 Presentación Google'
+                            } else if (deliverableUrl.includes('docs.google.com/document')) {
+                              deliverableLabel = '📝 Documento Google'
+                            } else if (deliverableUrl.includes('docs.google.com/spreadsheets')) {
+                              deliverableLabel = '📁 Hoja de Cálculo'
+                            } else if (deliverableUrl.includes('drive.google.com')) {
+                              deliverableLabel = '📂 Google Drive'
+                            } else {
+                              deliverableLabel = rawLabel.length > 25 ? '🔗 Entregable' : `🔗 ${rawLabel}`
+                            }
                           } catch {
-                            // Try raw text if JSON parse fails
+                            // Try fallback if JSON parsing fails
                           }
                         }
 
@@ -566,44 +588,53 @@ function MondayTab() {
                           <tr key={item.id} style={{ background: isEven ? '#fff' : '#faf8f3', borderBottom:'1px solid rgba(20,36,92,0.06)', transition:'background 0.1s' }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#f0ede5')}
                             onMouseLeave={e => (e.currentTarget.style.background = isEven ? '#fff' : '#faf8f3')}>
-                            <td style={{ padding:'13px 16px', verticalAlign:'middle' }}>
-                              <div style={{ fontWeight:600, color:'#1c2027', lineHeight:1.3 }}>{item.name}</div>
+                            <td style={{ padding:'10px 14px', verticalAlign:'middle', maxWidth: 300, wordBreak: 'break-word' }}>
+                              <div style={{ fontWeight:600, color:'#1c2027', lineHeight:1.35 }}>{item.name}</div>
                               {deliverableUrl && (
-                                <div style={{ marginTop: 4 }}>
-                                  <a href={deliverableUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11.5, color: 'var(--ink-600)', textDecoration: 'underline', fontWeight: 500 }}>
-                                    🔗 {deliverableText}
+                                <div style={{ marginTop: 6 }}>
+                                  <a href={deliverableUrl} target="_blank" rel="noopener noreferrer" 
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                                      fontSize: 11, color: '#1d5ca8', background: 'rgba(39,96,185,0.06)',
+                                      padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(39,96,185,0.15)',
+                                      textDecoration: 'none', fontWeight: 600, transition: 'all 0.15s'
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.12)')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(39,96,185,0.06)')}
+                                  >
+                                    {deliverableLabel}
                                   </a>
                                 </div>
                               )}
                             </td>
-                            <td style={{ padding:'13px 16px', textAlign:'center', verticalAlign:'middle' }}>
+                            <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
                               {statusVal ? (
-                                <span style={{ display:'inline-block', padding:'4px 12px', borderRadius:999, fontSize:12, fontWeight:600, background:sc.bg, color:sc.color, border:`1px solid ${sc.border}` }}>
+                                <span style={{ display:'inline-block', padding:'4px 10px', borderRadius:999, fontSize:11.5, fontWeight:600, background:sc.bg, color:sc.color, border:`1px solid ${sc.border}` }}>
                                   {statusVal}
                                 </span>
                               ) : <span style={{ color:'#ccc' }}>--</span>}
                             </td>
-                            <td style={{ padding:'13px 16px', textAlign:'center', verticalAlign:'middle' }}>
+                            <td style={{ padding:'10px 14px', textAlign:'center', verticalAlign:'middle' }}>
                               {dateVal ? (
-                                <span style={{ fontSize:13, fontWeight: overdue ? 700 : 500, color: overdue ? '#a8453b' : '#3d434c', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
+                                <span style={{ fontSize:12.5, fontWeight: overdue ? 700 : 500, color: overdue ? '#a8453b' : '#3d434c', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
                                   {overdue && <span title="Vencida" style={{ fontSize:14 }}>⚠️</span>}
                                   {fmtDate(dateVal)}
                                 </span>
-                              ) : <span style={{ color:'#ccc', fontSize:13 }}>Sin fecha</span>}
+                              ) : <span style={{ color:'#ccc', fontSize:12.5 }}>Sin fecha</span>}
                             </td>
-                            <td style={{ padding:'13px 16px', verticalAlign:'middle' }}>
+                            <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
                               {responsible ? (
                                 <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
                                   {responsible.split(',').map((r, i) => (
-                                    <span key={i} style={{ fontSize:12, background:'rgba(39,69,133,0.08)', color:'#274585', padding:'2px 8px', borderRadius:999, border:'1px solid rgba(39,69,133,0.15)' }}>{r.trim()}</span>
+                                    <span key={i} style={{ fontSize:11.5, background:'rgba(39,69,133,0.06)', color:'#274585', padding:'1px 7px', borderRadius:999, border:'1px solid rgba(39,69,133,0.12)' }}>{r.trim()}</span>
                                   ))}
                                 </div>
-                              ) : <span style={{ color:'#ccc', fontSize:13 }}>--</span>}
+                              ) : <span style={{ color:'#ccc', fontSize:12.5 }}>--</span>}
                             </td>
-                            <td style={{ padding:'13px 16px', verticalAlign:'middle' }}>
+                            <td style={{ padding:'10px 14px', verticalAlign:'middle' }}>
                               {workType ? (
                                 <span style={{ fontSize:12.5, fontWeight: 500, color:'var(--char)' }}>{workType}</span>
-                              ) : <span style={{ color:'#ccc', fontSize:13 }}>--</span>}
+                              ) : <span style={{ color:'#ccc', fontSize:12.5 }}>--</span>}
                             </td>
                           </tr>
                         )
